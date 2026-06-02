@@ -1,0 +1,16 @@
+services:
+  ok-weather-bot:
+    build: ./app
+    container_name: ok-weather-bot
+    restart: unless-stopped
+    environment:
+      TZ: America/Chicago
+      NWS_USER_AGENT: "ok-weather-discord-bot/1.0 (your_email@example.com)"
+      BRIEF_WEBHOOK_URL: "https://discord.com/api/webhooks/1510718502271713571/I4BqJTEJbTqdqKbq5wGPl6SczSij6M1m8qeGdESoZtMmeC5nfLQi23ibd0ZLLuNdNmue"
+      ALERT_WEBHOOK_URL: "https://discord.com/api/webhooks/1510718673461969146/pQEsNndscyIvjJAx4lFCWtD591kg1X43cHHfE2pHpySvYKmGaWhJ6GMysRKstgaSz458E"
+      POLL_SECONDS: "180"
+      BRIEF_HOUR: "9"
+      BRIEF_MINUTE: "0"
+      STATE_FILE: "/data/state.json"
+    volumes:
+      - ./data:/data
