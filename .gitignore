@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Weather bot runtime data
+data/
+state.json
+weather.log
+
+# Discord / local config
+config.local.py
+secrets.json
