@@ -96,6 +96,18 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertIn("Severe storms", weather_bot.parse_afd_notes(text))
 
+    def test_afd_notes_are_trimmed_to_key_bullets(self):
+        section = "- Severe storms possible tonight. - Hot again Tuesday. - Rain chances continue. - Extra detail."
+
+        note = weather_bot.summarize_afd_section(section)
+
+        self.assertIn("• Severe storms possible tonight.", note)
+        self.assertIn("• Hot again Tuesday.", note)
+        self.assertNotIn("Extra detail", note)
+
+    def test_clean_repairs_mojibake_degree_symbol(self):
+        self.assertEqual(weather_bot.clean("73Â°F"), "73°F")
+
     def test_build_brief_embeds_includes_forecaster_notes(self):
         data = {
             "important": [],
@@ -110,6 +122,8 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertTrue(any(embed["title"] == "Forecaster Notes" for embed in embeds))
         self.assertTrue(any("image" in embed for embed in embeds if embed["title"].startswith("SPC")))
+        city_field = embeds[0]["fields"][1]["value"]
+        self.assertTrue(city_field.startswith("• OKC"))
 
 
 if __name__ == "__main__":

@@ -241,8 +241,13 @@ def post_discord(webhook_url, content=None, embeds=None):
 def clean(text, max_len=900):
     if not text:
         return ""
+    text = str(text).replace("Â°", "°")
     text = re.sub(r"\s+", " ", str(text)).strip()
     return text[:max_len] + ("..." if len(text) > max_len else "")
+
+
+def bullet_list(items):
+    return "\n".join(f"• {item}" for item in items if item)
 
 
 def fetch_active_ok_alerts():
@@ -596,8 +601,17 @@ def parse_afd_notes(product_text):
     ):
         section = extract_afd_section(text, headings)
         if section:
-            return section
+            return summarize_afd_section(section)
     return clean(text, 320)
+
+
+def summarize_afd_section(section):
+    section = clean(section, 700)
+    bullets = re.findall(r"(?:^|\s)-\s+(.+?)(?=\s+-\s+|$)", section)
+    if bullets:
+        return bullet_list(clean(item, 150) for item in bullets[:3])
+    sentences = re.split(r"(?<=[.!?])\s+", section)
+    return " ".join(clean(sentence, 160) for sentence in sentences[:2] if sentence)
 
 
 def fetch_forecaster_notes():
@@ -629,9 +643,9 @@ def city_forecast_summary(name, lat, lon):
             return f"{name}: forecast unavailable"
         first = periods[0]
         second = periods[1] if len(periods) > 1 else None
-        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}Â°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 55)}"
+        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 55)}"
         if second:
-            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}Â°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 55)}"
+            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 55)}"
         return line
     except Exception as e:
         log.warning("Forecast failed for %s: %s", name, e)
@@ -727,10 +741,10 @@ def build_brief_embeds(data=None):
     }
     if important:
         alert_lines = [f"**{p.get('event','Alert')}**: {clean(p.get('areaDesc',''), 120)}" for p in important[:5]]
-        add_embed_field(overview, f"Active notable alerts: {len(important)}", "\n".join(alert_lines), False)
+        add_embed_field(overview, f"Active notable alerts: {len(important)}", bullet_list(alert_lines), False)
     else:
         add_embed_field(overview, "Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
-    add_embed_field(overview, "City snapshots", "\n".join(forecasts), False)
+    add_embed_field(overview, "City snapshots", bullet_list(forecasts), False)
 
     embeds = [overview, spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)]
 
@@ -744,8 +758,8 @@ def build_brief_embeds(data=None):
         radar = radar_image_url()
         if radar:
             embeds.append({
-                "title": f"Radar Loop ({RADAR_STATIONS[0]})",
-                "description": "Displayed because active notable alerts are in effect.",
+                "title": f"{RADAR_STATIONS[0]} Radar",
+                "description": "Active notable alerts are in effect.",
                 "color": 0x4A90E2,
                 "image": {"url": radar},
                 "url": "https://radar.weather.gov/",
