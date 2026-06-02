@@ -50,6 +50,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+.test-data/
 
 # Translations
 *.mo
@@ -219,12 +220,17 @@ __marimo__/
 
 # Weather bot runtime data
 data/
+data/**
 state.json
+state.json.tmp
 weather.log
+*.log
 
 # Discord / local config
 config.local.py
 secrets.json
 
 .env
+.env.*
 config.local.env
+!config.example.env

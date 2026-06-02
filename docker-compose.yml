@@ -3,14 +3,21 @@ services:
     build: ./app
     container_name: ok-weather-bot
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      TZ: America/Chicago
-      NWS_USER_AGENT: "ok-weather-discord-bot/1.0 (your_email@example.com)"
-      BRIEF_WEBHOOK_URL: "https://discord.com/api/webhooks/1510718502271713571/I4BqJTEJbTqdqKbq5wGPl6SczSij6M1m8qeGdESoZtMmeC5nfLQi23ibd0ZLLuNdNmue"
-      ALERT_WEBHOOK_URL: "https://discord.com/api/webhooks/1510718673461969146/pQEsNndscyIvjJAx4lFCWtD591kg1X43cHHfE2pHpySvYKmGaWhJ6GMysRKstgaSz458E"
-      POLL_SECONDS: "180"
-      BRIEF_HOUR: "9"
-      BRIEF_MINUTE: "0"
-      STATE_FILE: "/data/state.json"
+      TZ: ${TZ:-America/Chicago}
+      POLL_SECONDS: ${POLL_SECONDS:-180}
+      BRIEF_HOUR: ${BRIEF_HOUR:-9}
+      BRIEF_MINUTE: ${BRIEF_MINUTE:-0}
+      STATE_FILE: ${STATE_FILE:-/data/state.json}
+      LOG_FILE: ${LOG_FILE:-/data/weather.log}
+      TRIGGER_BRIEF_FILE: ${TRIGGER_BRIEF_FILE:-/data/trigger_brief}
     volumes:
       - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.makedirs('/data', exist_ok=True); assert os.access('/data', os.W_OK)"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
