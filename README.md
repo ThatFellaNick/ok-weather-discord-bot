@@ -23,6 +23,8 @@ The service is designed for an Unraid appdata deployment:
 - NWS active alerts for Oklahoma:
   `https://api.weather.gov/alerts/active?area=OK`
 - NWS point forecasts for configured Oklahoma city snapshots.
+- NWS Area Forecast Discussions for configured offices:
+  `https://api.weather.gov/products/types/AFD/locations/{office}/latest`
 - SPC RSS feed:
   `https://www.spc.noaa.gov/products/spcrss.xml`
 - SPC Day 1 convective outlook text:
@@ -32,6 +34,9 @@ The service is designed for an Unraid appdata deployment:
 - NOAA/NWS SPC outlook map service for Oklahoma-intersecting categorical,
   tornado, hail, and wind probability polygons:
   `https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer`
+- SPC outlook map images:
+  `https://www.spc.noaa.gov/products/outlook/day1otlk.gif`
+- NWS radar loop images from `radar.weather.gov`.
 
 ## Setup on Unraid
 
@@ -76,6 +81,7 @@ All supported environment variables are shown in `config.example.env`.
 | `TZ` | Timezone used for scheduling and displayed times. | `America/Chicago` |
 | `POLL_SECONDS` | Main polling loop interval in seconds. | `180` |
 | `HTTP_MAX_RETRIES` | Maximum attempts for each NWS/SPC source fetch. | `3` |
+| `SEVERE_THUNDERSTORM_WARNING_MODE` | `all` posts every Severe Thunderstorm Warning; `high_end` only posts stronger-worded warnings. | `all` |
 | `BRIEF_HOUR` | Hour for the daily brief in `TZ`, 24-hour clock. | `9` |
 | `BRIEF_MINUTE` | Minute for the daily brief in `TZ`. | `0` |
 | `STATE_FILE` | Persistent JSON state file path inside the container. | `/data/state.json` |
@@ -83,6 +89,10 @@ All supported environment variables are shown in `config.example.env`.
 | `SEND_STARTUP_MESSAGE` | Send a one-time startup message when enabled. | `true` |
 | `TEST_BRIEF_ON_START` | Send a brief immediately at container start when enabled. | `false` |
 | `TRIGGER_BRIEF_FILE` | File path watched for manual brief requests. | `/data/trigger_brief` |
+| `TRIGGER_ALERT_TEST_FILE` | File path watched for alert webhook test posts. | `/data/trigger_alert_test` |
+| `AFD_OFFICES` | Comma-separated NWS offices used for Forecaster Notes. | `OUN,TSA` |
+| `INCLUDE_BRIEF_IMAGES` | Include SPC outlook map embeds and radar loop embeds. | `true` |
+| `RADAR_STATIONS` | Comma-separated radar IDs. First station is shown when active notable alerts exist. | `KTLX,KINX,KFDR` |
 | `DISCORD_MAX_RETRIES` | Maximum Discord webhook attempts per post. | `3` |
 
 ## Manual Brief Trigger
@@ -94,6 +104,14 @@ touch /mnt/user/appdata/ok-weather-discord-bot/data/trigger_brief
 ```
 
 The bot checks for this file during the normal polling loop. After a successful Discord post, it removes the trigger file. If posting fails, the file is left in place so the next loop can retry.
+
+To test the alert webhook directly:
+
+```bash
+touch /mnt/user/appdata/ok-weather-discord-bot/data/trigger_alert_test
+```
+
+The bot posts a test message to `ALERT_WEBHOOK_URL` and removes the file after a successful post.
 
 ## Defaults
 

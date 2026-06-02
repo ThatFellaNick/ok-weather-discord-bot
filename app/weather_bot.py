@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import os
 import re
@@ -19,16 +19,24 @@ BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "9"))
 BRIEF_MINUTE = int(os.getenv("BRIEF_MINUTE", "0"))
 DISCORD_MAX_RETRIES = int(os.getenv("DISCORD_MAX_RETRIES", "3"))
 HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
+SEVERE_THUNDERSTORM_WARNING_MODE = os.getenv("SEVERE_THUNDERSTORM_WARNING_MODE", "all").lower()
 STATE_FILE = os.getenv("STATE_FILE", "/data/state.json")
 LOG_FILE = os.getenv("LOG_FILE", "/data/weather.log")
 SEND_STARTUP_MESSAGE = os.getenv("SEND_STARTUP_MESSAGE", "true").lower() == "true"
 TEST_BRIEF_ON_START = os.getenv("TEST_BRIEF_ON_START", "false").lower() == "true"
 TRIGGER_BRIEF_FILE = os.getenv("TRIGGER_BRIEF_FILE", "/data/trigger_brief")
+TRIGGER_ALERT_TEST_FILE = os.getenv("TRIGGER_ALERT_TEST_FILE", "/data/trigger_alert_test")
+AFD_OFFICES = [office.strip().upper() for office in os.getenv("AFD_OFFICES", "OUN,TSA").split(",") if office.strip()]
+INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
+RADAR_STATIONS = [station.strip().upper() for station in os.getenv("RADAR_STATIONS", "KTLX,KINX,KFDR").split(",") if station.strip()]
 
 NWS_ALERTS_OK = "https://api.weather.gov/alerts/active?area=OK"
+NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/locations/{office}/latest"
 SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
 SPC_DAY1_TXT = "https://www.spc.noaa.gov/products/outlook/day1otlk.txt"
 SPC_DAY2_TXT = "https://www.spc.noaa.gov/products/outlook/day2otlk.txt"
+SPC_DAY1_MAP = "https://www.spc.noaa.gov/products/outlook/day1otlk.gif"
+SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.gif"
 SPC_OUTLOOK_MAPSERVER = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer"
 OKLAHOMA_BBOX = "-103.1,33.5,-94.4,37.1"
 
@@ -106,6 +114,16 @@ CATEGORY_DN_LABELS = {
     8: "High",
 }
 GIS_RISK_ORDER = ["None found", "General Thunder", "Marginal", "Slight", "Enhanced", "Moderate", "High", "Unavailable"]
+RISK_COLORS = {
+    "None found": 0x607D8B,
+    "General Thunder": 0x55BB55,
+    "Marginal": 0x006B00,
+    "Slight": 0xDDAA00,
+    "Enhanced": 0xFF6600,
+    "Moderate": 0xCC0000,
+    "High": 0xCC00CC,
+    "Unavailable": 0x607D8B,
+}
 
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 logging.basicConfig(
@@ -244,7 +262,9 @@ def should_send_alert(props):
     if event in HIGH_SIGNAL_EVENTS:
         return True
     if event == "Severe Thunderstorm Warning":
-        return bool(re.search(r"(baseball|softball|tennis ball|golf ball|2\.00|1\.75|70 mph|75 mph|80 mph|considerable|destructive)", desc))
+        if SEVERE_THUNDERSTORM_WARNING_MODE == "high_end":
+            return bool(re.search(r"(baseball|softball|tennis ball|golf ball|2\.00|1\.75|70 mph|75 mph|80 mph|considerable|destructive)", desc))
+        return True
     if event == "Special Weather Statement":
         return True
     if event in IMPORTANT_EVENTS and severity in {"Extreme", "Severe"}:
@@ -306,7 +326,7 @@ def send_new_nws_alerts(state):
         }
         if instr:
             embed["fields"].append({"name": "Instruction", "value": instr, "inline": False})
-        if post_discord(ALERT_WEBHOOK_URL, content="🚨 New Oklahoma weather alert", embeds=[embed]):
+        if post_discord(ALERT_WEBHOOK_URL, content="ðŸš¨ New Oklahoma weather alert", embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -341,7 +361,7 @@ def send_new_spc_items(state):
             continue
         if post_discord(
             ALERT_WEBHOOK_URL,
-            content=f"⚡ **SPC item mentioning Oklahoma**\n**{title}**\n{summary}\n{entry.get('link', '')}",
+            content=f"âš¡ **SPC item mentioning Oklahoma**\n**{title}**\n{summary}\n{entry.get('link', '')}",
         ):
             new_ids.append(key)
             seen.add(key)
@@ -550,6 +570,49 @@ def should_show_text_risk_lines(outlook):
     return outlook.get("source") != "SPC GIS"
 
 
+def fetch_latest_product(product_type, office):
+    url = NWS_PRODUCT_LATEST.format(product_type=product_type, office=office)
+    return get(url, "application/json").json()
+
+
+def extract_afd_section(text, headings):
+    heading_pattern = "|".join(re.escape(heading) for heading in headings)
+    pattern = rf"(?:^|\n)\.?\s*({heading_pattern})[^\n]*\n(.*?)(?=\n\.?[A-Z][A-Z /-]+[^\n]*\n|\n&&|$)"
+    match = re.search(pattern, text, re.I | re.S)
+    if not match:
+        return ""
+    return clean(match.group(2), 320)
+
+
+def parse_afd_notes(product_text):
+    if not product_text:
+        return ""
+    text = product_text.replace("\r\n", "\n")
+    for headings in (
+        ["KEY MESSAGES"],
+        ["SHORT TERM", "NEAR TERM"],
+        ["DISCUSSION"],
+        ["LONG TERM"],
+    ):
+        section = extract_afd_section(text, headings)
+        if section:
+            return section
+    return clean(text, 320)
+
+
+def fetch_forecaster_notes():
+    notes = []
+    for office in AFD_OFFICES[:4]:
+        try:
+            product = fetch_latest_product("AFD", office)
+            note = parse_afd_notes(product.get("productText", ""))
+            if note:
+                notes.append({"office": office, "text": note, "url": product.get("@id", "")})
+        except Exception as e:
+            log.warning("Failed to fetch AFD for %s: %s", office, e)
+    return notes
+
+
 def point_forecast_url(lat, lon):
     points = get_json(f"https://api.weather.gov/points/{lat},{lon}")
     return points.get("properties", {}).get("forecast")
@@ -566,9 +629,9 @@ def city_forecast_summary(name, lat, lon):
             return f"{name}: forecast unavailable"
         first = periods[0]
         second = periods[1] if len(periods) > 1 else None
-        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 55)}"
+        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}Â°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 55)}"
         if second:
-            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 55)}"
+            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}Â°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 55)}"
         return line
     except Exception as e:
         log.warning("Forecast failed for %s: %s", name, e)
@@ -590,7 +653,41 @@ def bottom_line(day1, active_alerts):
     return "No active notable Oklahoma alerts and no meaningful severe signal found by the bot."
 
 
-def build_brief_message():
+def risk_color(risk):
+    return RISK_COLORS.get(risk, 0x607D8B)
+
+
+def radar_image_url():
+    if not RADAR_STATIONS:
+        return ""
+    return f"https://radar.weather.gov/ridge/standard/{RADAR_STATIONS[0]}_loop.gif"
+
+
+def add_embed_field(embed, name, value, inline=False):
+    value = clean(value, 1000) or "Unavailable"
+    embed.setdefault("fields", []).append({"name": name, "value": value, "inline": inline})
+
+
+def spc_embed(day, map_url):
+    embed = {
+        "title": f"SPC {day.get('day', 'Outlook')}",
+        "description": f"Highest Oklahoma signal: **{day.get('risk', 'Unavailable')}**",
+        "color": risk_color(day.get("risk", "Unavailable")),
+        "url": day.get("url"),
+        "fields": [],
+    }
+    add_embed_field(embed, "Oklahoma probabilities", format_probabilities(day), False)
+    if day.get("summary"):
+        add_embed_field(embed, "SPC national summary", day["summary"], False)
+    if should_show_text_risk_lines(day):
+        for risk_line in day.get("risk_lines", [])[:1]:
+            add_embed_field(embed, "Text risk line", risk_line, False)
+    if INCLUDE_BRIEF_IMAGES:
+        embed["image"] = {"url": map_url}
+    return embed
+
+
+def build_brief_data():
     alerts = fetch_active_ok_alerts()
     important = []
     for f in alerts:
@@ -600,11 +697,77 @@ def build_brief_message():
 
     day1 = merged_spc_day(fetch_spc_outlook(SPC_DAY1_TXT, "Day 1"), fetch_spc_gis_summary("Day 1"))
     day2 = merged_spc_day(fetch_spc_outlook(SPC_DAY2_TXT, "Day 2"), fetch_spc_gis_summary("Day 2"))
-
     forecasts = [city_forecast_summary(name, lat, lon) for name, (lat, lon) in CITY_POINTS.items()]
-
+    forecaster_notes = fetch_forecaster_notes()
     now = datetime.now(TZ).strftime("%A, %B %-d at %-I:%M %p")
-    lines = ["🌦️ **Oklahoma Weather Brief**", f"_{now}_", ""]
+    return {
+        "alerts": alerts,
+        "important": important,
+        "day1": day1,
+        "day2": day2,
+        "forecasts": forecasts,
+        "forecaster_notes": forecaster_notes,
+        "now": now,
+    }
+
+
+def build_brief_embeds(data=None):
+    data = data or build_brief_data()
+    day1 = data["day1"]
+    day2 = data["day2"]
+    important = data["important"]
+    forecasts = data["forecasts"]
+    notes = data["forecaster_notes"]
+
+    overview = {
+        "title": "Oklahoma Weather Brief",
+        "description": f"_{data['now']}_\n\n**Bottom line:**\n{bottom_line(day1, important)}",
+        "color": risk_color(day1.get("risk", "Unavailable")),
+        "fields": [],
+    }
+    if important:
+        alert_lines = [f"**{p.get('event','Alert')}**: {clean(p.get('areaDesc',''), 120)}" for p in important[:5]]
+        add_embed_field(overview, f"Active notable alerts: {len(important)}", "\n".join(alert_lines), False)
+    else:
+        add_embed_field(overview, "Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
+    add_embed_field(overview, "City snapshots", "\n".join(forecasts), False)
+
+    embeds = [overview, spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)]
+
+    if notes:
+        notes_embed = {"title": "Forecaster Notes", "color": 0x4A90E2, "fields": []}
+        for note in notes[:4]:
+            add_embed_field(notes_embed, f"NWS {note['office']}", note["text"], False)
+        embeds.append(notes_embed)
+
+    if INCLUDE_BRIEF_IMAGES and important:
+        radar = radar_image_url()
+        if radar:
+            embeds.append({
+                "title": f"Radar Loop ({RADAR_STATIONS[0]})",
+                "description": "Displayed because active notable alerts are in effect.",
+                "color": 0x4A90E2,
+                "image": {"url": radar},
+                "url": "https://radar.weather.gov/",
+            })
+
+    embeds.append({
+        "title": "Sources",
+        "description": "NWS active alerts, NWS point forecasts, NWS forecast discussions, SPC Day 1/Day 2 outlook text, SPC GIS, SPC RSS.",
+        "color": 0x607D8B,
+    })
+    return embeds[:10]
+
+
+def build_brief_message(data=None):
+    data = data or build_brief_data()
+    important = data["important"]
+    day1 = data["day1"]
+    day2 = data["day2"]
+    forecasts = data["forecasts"]
+    forecaster_notes = data["forecaster_notes"]
+
+    lines = ["🌦️ **Oklahoma Weather Brief**", f"_{data['now']}_", ""]
     lines.append("**Bottom line:**")
     lines.append(bottom_line(day1, important))
     lines.append("")
@@ -643,14 +806,24 @@ def build_brief_message():
     for f in forecasts:
         lines.append(f"• {f}")
 
+    if forecaster_notes:
+        lines.append("")
+        lines.append("**Forecaster notes:**")
+        for note in forecaster_notes[:3]:
+            lines.append(f"• **NWS {note['office']}**: {note['text']}")
+
     lines.append("")
-    lines.append("Sources: NWS active alerts, NWS point forecasts, SPC Day 1/Day 2 outlook text, SPC GIS, SPC RSS.")
+    lines.append("Sources: NWS active alerts, NWS point forecasts, NWS forecast discussions, SPC Day 1/Day 2 outlook text, SPC GIS, SPC RSS.")
     message = "\n".join(lines)
     if len(message) > 1900:
         message = message[:1850] + "\n\n...brief truncated to fit Discord."
     return message
 
 
+def post_brief():
+    data = build_brief_data()
+    content = f"🌦️ **Oklahoma Weather Brief** — {data['now']}"
+    return post_discord(BRIEF_WEBHOOK_URL, content=content, embeds=build_brief_embeds(data))
 
 def maybe_send_manual_brief(state):
     """Send a brief when TRIGGER_BRIEF_FILE exists, then remove the file.
@@ -663,7 +836,7 @@ def maybe_send_manual_brief(state):
     if not os.path.exists(TRIGGER_BRIEF_FILE):
         return
     log.info("Manual brief trigger detected: %s", TRIGGER_BRIEF_FILE)
-    if not post_discord(BRIEF_WEBHOOK_URL, content=build_brief_message()):
+    if not post_brief():
         log.warning("Manual brief was not sent; leaving trigger file for retry")
         return
     try:
@@ -674,12 +847,37 @@ def maybe_send_manual_brief(state):
     except Exception as e:
         log.warning("Could not remove manual trigger file: %s", e)
 
+
+def maybe_send_alert_test():
+    if not TRIGGER_ALERT_TEST_FILE or not os.path.exists(TRIGGER_ALERT_TEST_FILE):
+        return
+    log.info("Manual alert test trigger detected: %s", TRIGGER_ALERT_TEST_FILE)
+    ok = post_discord(
+        ALERT_WEBHOOK_URL,
+        content="🚨 Alert webhook test",
+        embeds=[{
+            "title": "Oklahoma Weather Bot Alert Test",
+            "description": "This confirms ALERT_WEBHOOK_URL can post to the alert channel.",
+            "color": 0xFF9900,
+        }],
+    )
+    if not ok:
+        log.warning("Alert webhook test was not sent; leaving trigger file for retry")
+        return
+    try:
+        os.remove(TRIGGER_ALERT_TEST_FILE)
+        log.info("Manual alert test trigger consumed and removed")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log.warning("Could not remove manual alert test trigger file: %s", e)
+
+
 def maybe_send_daily_brief(state):
     now = datetime.now(TZ)
     today = now.date().isoformat()
     if now.hour == BRIEF_HOUR and now.minute >= BRIEF_MINUTE and state.get("last_brief_date") != today:
-        msg = build_brief_message()
-        if post_discord(BRIEF_WEBHOOK_URL, content=msg):
+        if post_brief():
             state["last_brief_date"] = today
             log.info("Daily brief sent for %s", today)
         else:
@@ -690,7 +888,7 @@ def send_startup_message_once(state):
     if not SEND_STARTUP_MESSAGE or state.get("startup_sent"):
         return
     msg = (
-        "✅ **Oklahoma Weather Bot Started**\n"
+        "âœ… **Oklahoma Weather Bot Started**\n"
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         "Version: v2.4.3"
@@ -700,19 +898,30 @@ def send_startup_message_once(state):
         log.info("Startup message sent")
 
 
+def log_config_summary():
+    log.info(
+        "Config: brief_webhook=%s alert_webhook=%s severe_thunderstorm_warning_mode=%s",
+        "configured" if BRIEF_WEBHOOK_URL else "missing",
+        "configured" if ALERT_WEBHOOK_URL else "missing",
+        SEVERE_THUNDERSTORM_WARNING_MODE,
+    )
+
+
 def main():
     log.info("Starting Oklahoma Weather Discord Bot v2.3")
+    log_config_summary()
     state = load_state()
     send_startup_message_once(state)
     if TEST_BRIEF_ON_START:
         log.info("TEST_BRIEF_ON_START enabled, sending test brief")
-        post_discord(BRIEF_WEBHOOK_URL, content=build_brief_message())
+        post_brief()
     save_state(state)
     while True:
         try:
             send_new_nws_alerts(state)
             send_new_spc_items(state)
             maybe_send_manual_brief(state)
+            maybe_send_alert_test()
             maybe_send_daily_brief(state)
             save_state(state)
         except Exception as e:
@@ -722,3 +931,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

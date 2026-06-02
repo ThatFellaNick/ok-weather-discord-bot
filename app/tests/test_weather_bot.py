@@ -72,6 +72,45 @@ class SpcParsingTests(unittest.TestCase):
         self.assertFalse(weather_bot.should_show_text_risk_lines({"source": "SPC GIS"}))
         self.assertTrue(weather_bot.should_show_text_risk_lines({"source": "SPC text"}))
 
+    def test_severe_thunderstorm_warning_posts_by_default(self):
+        props = {
+            "event": "Severe Thunderstorm Warning",
+            "severity": "Severe",
+            "headline": "Severe Thunderstorm Warning",
+            "description": "60 mph wind gusts and quarter size hail.",
+            "instruction": "",
+        }
+
+        self.assertTrue(weather_bot.should_send_alert(props))
+
+    def test_parse_afd_notes_prefers_key_messages(self):
+        text = """
+        Area Forecast Discussion
+        .KEY MESSAGES...
+        Severe storms are possible this evening across western Oklahoma.
+
+        .SHORT TERM
+        Additional discussion follows.
+        &&
+        """
+
+        self.assertIn("Severe storms", weather_bot.parse_afd_notes(text))
+
+    def test_build_brief_embeds_includes_forecaster_notes(self):
+        data = {
+            "important": [],
+            "day1": {"day": "Day 1", "risk": "Slight", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
+            "day2": {"day": "Day 2", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
+            "forecasts": ["OKC: forecast"],
+            "forecaster_notes": [{"office": "OUN", "text": "Severe storms possible.", "url": ""}],
+            "now": "Monday, June 1 at 9:00 PM",
+        }
+
+        embeds = weather_bot.build_brief_embeds(data)
+
+        self.assertTrue(any(embed["title"] == "Forecaster Notes" for embed in embeds))
+        self.assertTrue(any("image" in embed for embed in embeds if embed["title"].startswith("SPC")))
+
 
 if __name__ == "__main__":
     unittest.main()
