@@ -225,3 +225,6 @@ weather.log
 # Discord / local config
 config.local.py
 secrets.json
+
+.env
+config.local.env
