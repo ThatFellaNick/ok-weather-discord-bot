@@ -110,6 +110,7 @@ class SpcParsingTests(unittest.TestCase):
 
     def test_build_brief_embeds_includes_forecaster_notes(self):
         data = {
+            "alerts": [],
             "important": [],
             "day1": {"day": "Day 1", "risk": "Slight", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
             "day2": {"day": "Day 2", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
@@ -124,6 +125,49 @@ class SpcParsingTests(unittest.TestCase):
         self.assertTrue(any("image" in embed for embed in embeds if embed["title"].startswith("SPC")))
         city_field = embeds[0]["fields"][1]["value"]
         self.assertTrue(city_field.startswith("• OKC"))
+
+
+    def test_overview_uses_strongest_alert_color_when_alerts_exist(self):
+        data = {
+            "alerts": [{"properties": {"event": "Tornado Warning", "severity": "Extreme"}}],
+            "important": [{"event": "Tornado Warning", "severity": "Extreme", "areaDesc": "Canadian, OK"}],
+            "day1": {"day": "Day 1", "risk": "Slight", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "National text.", "risk_lines": [], "source": "SPC GIS"},
+            "day2": {"day": "Day 2", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
+            "forecasts": ["OKC: forecast"],
+            "forecaster_notes": [],
+            "now": "Monday, June 1 at 9:00 PM",
+        }
+
+        embeds = weather_bot.build_brief_embeds(data)
+
+        self.assertEqual(embeds[0]["color"], 0xFF0000)
+        self.assertEqual(embeds[1]["fields"][1]["name"], "SPC national context")
+        self.assertTrue(any(embed.get("color") == 0xFF0000 for embed in embeds if embed["title"].endswith("Radar")))
+
+    def test_watch_alert_line_summarizes_count_and_expiration(self):
+        props = {
+            "event": "Severe Thunderstorm Watch",
+            "headline": "Severe Thunderstorm Watch 412",
+            "areaDesc": "Alfalfa, OK; Garfield, OK; Grant, OK",
+            "expires": "2026-06-02T03:00:00-05:00",
+        }
+
+        line = weather_bot.brief_alert_line(props)
+
+        self.assertIn("Severe Thunderstorm Watch #412", line)
+        self.assertIn("3 Oklahoma counties", line)
+        self.assertIn("expires", line)
+
+    def test_expected_timing_uses_forecaster_notes(self):
+        data = {
+            "forecaster_notes": [{"text": "Storms possible this evening. Dry later in the week."}],
+            "day1": {"summary": ""},
+            "day2": {"summary": ""},
+        }
+
+        timing = weather_bot.expected_timing(data)
+
+        self.assertIn("this evening", timing)
 
 
 if __name__ == "__main__":

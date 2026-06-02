@@ -87,6 +87,7 @@ OKLAHOMA_WORDS = re.compile(
     r"\b(oklahoma|\bok\b|okc|oklahoma city|tulsa|norman|lawton|enid|ardmore|woodward|ponca|stillwater|mcalester|altus|guymon|elk city|clinton|chickasha|shawnee|seminole|ada|durant|idabel)\b",
     re.I,
 )
+TIMING_WORDS = re.compile(r"\b(this|today|tonight|overnight|morning|afternoon|evening|late|early|after|before|through|by|around|\d{1,2}\s*(?:am|pm|AM|PM)|CDT|CST)\b")
 SPC_IMPORTANT = re.compile(r"(mesoscale discussion|tornado watch|severe thunderstorm watch|convective outlook|day 1|day 2)", re.I)
 RISK_ORDER = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]
 RISK_LABELS = {
@@ -250,6 +251,36 @@ def bullet_list(items):
     return "\n".join(f"• {item}" for item in items if item)
 
 
+def format_local_time(value):
+    if not value:
+        return "Unknown"
+    try:
+        return dtparser.parse(value).astimezone(TZ).strftime("%-I:%M %p %Z")
+    except Exception:
+        return value
+
+
+def county_count(area_desc):
+    if not area_desc:
+        return 0
+    return len([part for part in re.split(r";", area_desc) if part.strip()])
+
+
+def watch_number(props):
+    text = " ".join(str(props.get(key, "")) for key in ("headline", "description", "event"))
+    match = re.search(r"\b(?:Watch(?: Number)?|WW)\s*#?\s*(\d{1,4})\b", text, re.I)
+    return f" #{match.group(1)}" if match else ""
+
+
+def brief_alert_line(props):
+    event = props.get("event", "Alert")
+    if event in {"Severe Thunderstorm Watch", "Tornado Watch"}:
+        count = county_count(props.get("areaDesc", ""))
+        county_text = f"{count} Oklahoma counties" if count else "Oklahoma counties"
+        return f"**{event}{watch_number(props)}**: {county_text}, expires {format_local_time(props.get('expires'))}"
+    return f"**{event}**: {clean(props.get('areaDesc', ''), 120)}"
+
+
 def fetch_active_ok_alerts():
     data = get_json(NWS_ALERTS_OK)
     return data.get("features", [])
@@ -291,6 +322,24 @@ def alert_color(event, severity):
     if severity == "Severe":
         return 0xFF9900
     return 0x607D8B
+
+
+def strongest_alert_color(alerts):
+    priority = {
+        0xFF0000: 5,
+        0xB00020: 4,
+        0xFF9900: 3,
+        0x00AEEF: 2,
+        0x607D8B: 1,
+    }
+    best = 0x607D8B
+    best_priority = 0
+    for props in alerts:
+        color = alert_color(props.get("event", ""), props.get("severity", ""))
+        if priority.get(color, 0) > best_priority:
+            best = color
+            best_priority = priority.get(color, 0)
+    return best
 
 
 def send_new_nws_alerts(state):
@@ -614,6 +663,33 @@ def summarize_afd_section(section):
     return " ".join(clean(sentence, 160) for sentence in sentences[:2] if sentence)
 
 
+def timing_candidates(data):
+    texts = []
+    for note in data.get("forecaster_notes", []):
+        texts.append(note.get("text", ""))
+    for day in (data.get("day1", {}), data.get("day2", {})):
+        texts.append(day.get("summary", ""))
+    for text in texts:
+        for part in re.split(r"(?:\n|•|(?<=[.!?])\s+)", text):
+            part = clean(part, 180)
+            if part and TIMING_WORDS.search(part):
+                yield part
+
+
+def expected_timing(data):
+    seen = set()
+    selected = []
+    for candidate in timing_candidates(data):
+        key = candidate.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(candidate)
+        if len(selected) >= 2:
+            break
+    return bullet_list(selected)
+
+
 def fetch_forecaster_notes():
     notes = []
     for office in AFD_OFFICES[:4]:
@@ -643,9 +719,9 @@ def city_forecast_summary(name, lat, lon):
             return f"{name}: forecast unavailable"
         first = periods[0]
         second = periods[1] if len(periods) > 1 else None
-        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 55)}"
+        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 42)}"
         if second:
-            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 55)}"
+            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 42)}"
         return line
     except Exception as e:
         log.warning("Forecast failed for %s: %s", name, e)
@@ -692,7 +768,7 @@ def spc_embed(day, map_url):
     }
     add_embed_field(embed, "Oklahoma probabilities", format_probabilities(day), False)
     if day.get("summary"):
-        add_embed_field(embed, "SPC national summary", day["summary"], False)
+        add_embed_field(embed, "SPC national context", day["summary"], False)
     if should_show_text_risk_lines(day):
         for risk_line in day.get("risk_lines", [])[:1]:
             add_embed_field(embed, "Text risk line", risk_line, False)
@@ -730,20 +806,24 @@ def build_brief_embeds(data=None):
     day1 = data["day1"]
     day2 = data["day2"]
     important = data["important"]
+    alert_props = [feature.get("properties", {}) for feature in data.get("alerts", [])]
     forecasts = data["forecasts"]
     notes = data["forecaster_notes"]
 
     overview = {
         "title": "Oklahoma Weather Brief",
         "description": f"_{data['now']}_\n\n**Bottom line:**\n{bottom_line(day1, important)}",
-        "color": risk_color(day1.get("risk", "Unavailable")),
+        "color": strongest_alert_color(alert_props) if important else risk_color(day1.get("risk", "Unavailable")),
         "fields": [],
     }
     if important:
-        alert_lines = [f"**{p.get('event','Alert')}**: {clean(p.get('areaDesc',''), 120)}" for p in important[:5]]
+        alert_lines = [brief_alert_line(p) for p in important[:5]]
         add_embed_field(overview, f"Active notable alerts: {len(important)}", bullet_list(alert_lines), False)
     else:
         add_embed_field(overview, "Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
+    timing = expected_timing(data)
+    if timing:
+        add_embed_field(overview, "Expected timing / focus", timing, False)
     add_embed_field(overview, "City snapshots", bullet_list(forecasts), False)
 
     embeds = [overview, spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)]
@@ -760,7 +840,7 @@ def build_brief_embeds(data=None):
             embeds.append({
                 "title": f"{RADAR_STATIONS[0]} Radar",
                 "description": "Active notable alerts are in effect.",
-                "color": 0x4A90E2,
+                "color": strongest_alert_color(alert_props),
                 "image": {"url": radar},
                 "url": "https://radar.weather.gov/",
             })
@@ -780,6 +860,7 @@ def build_brief_message(data=None):
     day2 = data["day2"]
     forecasts = data["forecasts"]
     forecaster_notes = data["forecaster_notes"]
+    timing = expected_timing(data)
 
     lines = ["🌦️ **Oklahoma Weather Brief**", f"_{data['now']}_", ""]
     lines.append("**Bottom line:**")
@@ -811,9 +892,14 @@ def build_brief_message(data=None):
     if important:
         lines.append(f"**Active notable alerts:** {len(important)}")
         for p in important[:5]:
-            lines.append(f"• **{p.get('event','Alert')}**: {clean(p.get('areaDesc',''), 120)}")
+            lines.append(f"• {brief_alert_line(p)}")
     else:
         lines.append("**Active notable alerts:** None found from NWS Oklahoma statewide alerts.")
+
+    if timing:
+        lines.append("")
+        lines.append("**Expected timing / focus:**")
+        lines.append(timing)
 
     lines.append("")
     lines.append("**City snapshots:**")
