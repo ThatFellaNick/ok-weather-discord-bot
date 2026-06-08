@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -324,6 +324,52 @@ def alert_color(event, severity):
     return 0x607D8B
 
 
+def alert_severity_label(event, severity, urgency="", certainty=""):
+    parts = [part for part in (severity, urgency, certainty) if part]
+    if not parts:
+        return "Unavailable"
+    return " / ".join(parts)
+
+
+def alert_time_label(name, value):
+    formatted = format_local_time(value)
+    if formatted == "Unknown":
+        return ""
+    return f"**{name}:** {formatted}"
+
+
+def alert_footer(props):
+    sent = alert_time_label("Sent", props.get("sent"))
+    effective = alert_time_label("Effective", props.get("effective"))
+    expires = alert_time_label("Expires", props.get("expires"))
+    return "\n".join(part for part in (sent, effective, expires) if part)
+
+
+def build_alert_embed(props, *, title=None, description=None):
+    event = props.get("event", "Weather Alert")
+    severity = props.get("severity", "")
+    urgency = props.get("urgency", "")
+    certainty = props.get("certainty", "")
+    area = clean(props.get("areaDesc", ""), 700)
+    headline = clean(props.get("headline", event), 250)
+    desc = clean(description if description is not None else props.get("description", ""), 900)
+    instr = clean(props.get("instruction", ""), 650)
+
+    embed = {
+        "title": title or f"{event}{watch_number(props)}",
+        "description": f"**{headline}**" + (f"\n\n{desc}" if desc else ""),
+        "color": alert_color(event, severity),
+        "url": props.get("@id") or props.get("id") or "https://alerts.weather.gov",
+        "fields": [],
+    }
+    add_embed_field(embed, "Affected area", area or "Oklahoma", False)
+    add_embed_field(embed, "Severity", alert_severity_label(event, severity, urgency, certainty), True)
+    add_embed_field(embed, "Timing", alert_footer(props), True)
+    if instr:
+        add_embed_field(embed, "Instruction", instr, False)
+    return embed
+
+
 def strongest_alert_color(alerts):
     priority = {
         0xFF0000: 5,
@@ -355,32 +401,8 @@ def send_new_nws_alerts(state):
         if key in seen:
             continue
         event = props.get("event", "Weather Alert")
-        severity = props.get("severity", "")
-        urgency = props.get("urgency", "")
-        certainty = props.get("certainty", "")
-        area = clean(props.get("areaDesc", ""), 450)
-        headline = clean(props.get("headline", event), 250)
-        desc = clean(props.get("description", ""), 900)
-        instr = clean(props.get("instruction", ""), 500)
-        expires = props.get("expires") or "Unknown"
-        try:
-            expires_local = dtparser.parse(expires).astimezone(TZ).strftime("%b %-d, %-I:%M %p %Z")
-        except Exception:
-            expires_local = expires
-        embed = {
-            "title": event,
-            "description": f"**{headline}**\n\n{desc}",
-            "fields": [
-                {"name": "Area", "value": area or "Oklahoma", "inline": False},
-                {"name": "Severity", "value": f"{severity} / {urgency} / {certainty}", "inline": True},
-                {"name": "Expires", "value": expires_local, "inline": True},
-            ],
-            "color": alert_color(event, severity),
-            "url": props.get("@id", "https://alerts.weather.gov"),
-        }
-        if instr:
-            embed["fields"].append({"name": "Instruction", "value": instr, "inline": False})
-        if post_discord(ALERT_WEBHOOK_URL, content="ðŸš¨ New Oklahoma weather alert", embeds=[embed]):
+        embed = build_alert_embed(props)
+        if post_discord(ALERT_WEBHOOK_URL, content=f"**New Oklahoma weather alert:** {event}", embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -750,7 +772,8 @@ def risk_color(risk):
 def radar_image_url():
     if not RADAR_STATIONS:
         return ""
-    return f"https://radar.weather.gov/ridge/standard/{RADAR_STATIONS[0]}_loop.gif"
+    cache_key = datetime.now(TZ).strftime("%Y%m%d%H%M")
+    return f"https://radar.weather.gov/ridge/standard/{RADAR_STATIONS[0]}_loop.gif?v={cache_key}"
 
 
 def add_embed_field(embed, name, value, inline=False):
@@ -952,14 +975,25 @@ def maybe_send_alert_test():
     if not TRIGGER_ALERT_TEST_FILE or not os.path.exists(TRIGGER_ALERT_TEST_FILE):
         return
     log.info("Manual alert test trigger detected: %s", TRIGGER_ALERT_TEST_FILE)
+    now = datetime.now(TZ)
+    test_props = {
+        "event": "Severe Thunderstorm Warning",
+        "headline": "Test alert card for Oklahoma weather bot",
+        "description": "This test uses the same card layout as real NWS alerts. No radar image is attached, so Discord cannot show a stale cached radar loop.",
+        "instruction": "No action needed. This is only a webhook and formatting test.",
+        "areaDesc": "Oklahoma test area",
+        "severity": "Severe",
+        "urgency": "Immediate",
+        "certainty": "Observed",
+        "sent": now.isoformat(),
+        "effective": now.isoformat(),
+        "expires": (now + timedelta(minutes=30)).isoformat(),
+        "@id": "https://alerts.weather.gov",
+    }
     ok = post_discord(
         ALERT_WEBHOOK_URL,
-        content="🚨 Alert webhook test",
-        embeds=[{
-            "title": "Oklahoma Weather Bot Alert Test",
-            "description": "This confirms ALERT_WEBHOOK_URL can post to the alert channel.",
-            "color": 0xFF9900,
-        }],
+        content="**Alert webhook test**",
+        embeds=[build_alert_embed(test_props, title="Oklahoma Weather Bot Alert Test")],
     )
     if not ok:
         log.warning("Alert webhook test was not sent; leaving trigger file for retry")
