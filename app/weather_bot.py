@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta
+from html import unescape
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -247,6 +248,18 @@ def clean(text, max_len=900):
     return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
+def clean_html(text, max_len=900):
+    if not text:
+        return ""
+    text = unescape(str(text))
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
+    text = re.sub(r"(?is)<img\b[^>]*>", " ", text)
+    text = re.sub(r"(?i)<br\s*/?>", " ", text)
+    text = re.sub(r"(?i)</(?:p|div|pre|li|tr|h[1-6])>", " ", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    return clean(unescape(text), max_len)
+
+
 def bullet_list(items):
     return "\n".join(f"• {item}" for item in items if item)
 
@@ -420,13 +433,42 @@ def entry_id(entry):
     return entry.get("id") or entry.get("link") or entry.get("title", "")
 
 
+def spc_item_color(title):
+    title = title.lower()
+    if "tornado watch" in title:
+        return 0xFF0000
+    if "severe thunderstorm watch" in title:
+        return 0xFF9900
+    if "mesoscale discussion" in title:
+        return 0xFF9900
+    if "convective outlook" in title:
+        return 0xDDAA00
+    return 0x607D8B
+
+
+def build_spc_item_embed(entry):
+    title = clean(entry.get("title", "SPC product"), 250)
+    summary = clean_html(entry.get("summary", ""), 900)
+    link = entry.get("link", "")
+    embed = {
+        "title": title,
+        "description": summary or "SPC product mentioning Oklahoma.",
+        "color": spc_item_color(title),
+        "fields": [],
+    }
+    if link:
+        embed["url"] = link
+    add_embed_field(embed, "Source", "Storm Prediction Center", False)
+    return embed
+
+
 def send_new_spc_items(state):
     seen = set(state.get("seen_spc", []))
     new_ids = []
     sent = 0
     for entry in fetch_spc_entries():
         title = entry.get("title", "")
-        summary = clean(entry.get("summary", ""), 700)
+        summary = clean_html(entry.get("summary", ""), 700)
         combined = f"{title} {summary}"
         if not SPC_IMPORTANT.search(combined):
             continue
@@ -437,7 +479,8 @@ def send_new_spc_items(state):
             continue
         if post_discord(
             ALERT_WEBHOOK_URL,
-            content=f"âš¡ **SPC item mentioning Oklahoma**\n**{title}**\n{summary}\n{entry.get('link', '')}",
+            content="**SPC item mentioning Oklahoma**",
+            embeds=[build_spc_item_embed(entry)],
         ):
             new_ids.append(key)
             seen.add(key)
