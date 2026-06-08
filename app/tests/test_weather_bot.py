@@ -145,6 +145,34 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_spc_fire_weather_items_ignore_norman_ok_office_header(self):
+        entry = {
+            "id": "spc-fire-day1-no-ok",
+            "title": "SPC Day 1 Fire Weather Outlook",
+            "summary": (
+                'SPC Day 1 Fire Weather Outlook <br /><a href="https://www.spc.noaa.gov/products/fire_wx/fwdy1.html">'
+                '<img alt="Day 1 Fire Weather Outlook Image" src="https://www.spc.noaa.gov/products/fire_wx/day1fireotlk.gif" />'
+                "</a><pre>Day 1 Fire Weather Outlook NWS Storm Prediction Center Norman OK "
+                "1140 AM CDT Mon Jun 08 2026 Valid 081700Z - 091200Z "
+                "...CRITICAL FIRE WEATHER AREA FOR PORTIONS OF THE SOUTHWEST...GREAT BASIN...CENTRAL ROCKIES... "
+                "...Northwestern NM into southern CO... Mainly dry thunderstorms are possible this afternoon."
+                "</pre>"
+            ),
+            "link": "https://www.spc.noaa.gov/products/fire_wx/fwdy1.html",
+        }
+        calls = []
+        old_fetch = weather_bot.fetch_spc_entries
+        old_post = weather_bot.post_discord
+        weather_bot.fetch_spc_entries = lambda: [entry]
+        weather_bot.post_discord = lambda *args, **kwargs: calls.append((args, kwargs)) or True
+        try:
+            weather_bot.send_new_spc_items({"seen_spc": []})
+        finally:
+            weather_bot.fetch_spc_entries = old_fetch
+            weather_bot.post_discord = old_post
+
+        self.assertEqual(calls, [])
+
     def test_severe_thunderstorm_warning_posts_by_default(self):
         props = {
             "event": "Severe Thunderstorm Warning",
