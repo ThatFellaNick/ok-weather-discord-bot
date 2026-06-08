@@ -117,6 +117,34 @@ class SpcParsingTests(unittest.TestCase):
         self.assertIn("SLIGHT RISK", kwargs["embeds"][0]["description"])
         self.assertNotIn("<pre>", kwargs["embeds"][0]["description"])
 
+    def test_spc_items_ignore_norman_ok_office_header(self):
+        entry = {
+            "id": "spc-day1-no-ok",
+            "title": "SPC Jun 8, 2026 1300 UTC Day 1 Convective Outlook",
+            "summary": (
+                'SPC 1300Z Day 1 Outlook <br /><a href="https://www.spc.noaa.gov/products/outlook/day1otlk.html">'
+                '<img alt="Day 1 Outlook Image" src="https://www.spc.noaa.gov/products/outlook/day1otlk.png" />'
+                "</a><pre>Day 1 Convective Outlook NWS Storm Prediction Center Norman OK "
+                "0703 AM CDT Mon Jun 08 2026 Valid 081300Z - 091200Z "
+                "...THERE IS A SLIGHT RISK OF SEVERE THUNDERSTORMS THIS AFTERNOON AND EVENING "
+                "FROM NORTHEAST COLORADO AND SOUTHEAST WYOMING INTO PARTS OF NEBRASKA AND KANSAS..."
+                "</pre>"
+            ),
+            "link": "https://www.spc.noaa.gov/products/outlook/day1otlk_1300.html",
+        }
+        calls = []
+        old_fetch = weather_bot.fetch_spc_entries
+        old_post = weather_bot.post_discord
+        weather_bot.fetch_spc_entries = lambda: [entry]
+        weather_bot.post_discord = lambda *args, **kwargs: calls.append((args, kwargs)) or True
+        try:
+            weather_bot.send_new_spc_items({"seen_spc": []})
+        finally:
+            weather_bot.fetch_spc_entries = old_fetch
+            weather_bot.post_discord = old_post
+
+        self.assertEqual(calls, [])
+
     def test_severe_thunderstorm_warning_posts_by_default(self):
         props = {
             "event": "Severe Thunderstorm Warning",

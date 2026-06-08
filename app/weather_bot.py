@@ -433,6 +433,12 @@ def entry_id(entry):
     return entry.get("id") or entry.get("link") or entry.get("title", "")
 
 
+def spc_oklahoma_search_text(entry, summary):
+    text = f"{entry.get('title', '')} {summary}"
+    text = re.sub(r"\bNWS Storm Prediction Center\s+Norman\s+OK\b", " ", text, flags=re.I)
+    return clean(text, 2000)
+
+
 def spc_item_color(title):
     title = title.lower()
     if "tornado watch" in title:
@@ -469,7 +475,7 @@ def send_new_spc_items(state):
     for entry in fetch_spc_entries():
         title = entry.get("title", "")
         summary = clean_html(entry.get("summary", ""), 700)
-        combined = f"{title} {summary}"
+        combined = spc_oklahoma_search_text(entry, summary)
         if not SPC_IMPORTANT.search(combined):
             continue
         if not OKLAHOMA_WORDS.search(combined):
