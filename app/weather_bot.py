@@ -40,6 +40,7 @@ NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/loca
 SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
 SPC_DAY1_TXT = "https://www.spc.noaa.gov/products/outlook/day1otlk.txt"
 SPC_DAY2_TXT = "https://www.spc.noaa.gov/products/outlook/day2otlk.txt"
+# Discord brief embeds render the static SPC PNG outlook maps reliably.
 SPC_DAY1_MAP = "https://www.spc.noaa.gov/products/outlook/day1otlk.png"
 SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.png"
 SPC_OUTLOOK_MAPSERVER = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer"
@@ -482,6 +483,7 @@ def spc_item_image_url(entry):
         image_url = normalize_spc_url(url)
         if image_url:
             return image_url
+    # SPC RSS outlook images usually live inside the HTML summary/description.
     summary = unescape(entry.get("summary", "") or entry.get("description", ""))
     match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.I)
     if match:
@@ -492,6 +494,7 @@ def spc_item_image_url(entry):
 def normalize_spc_url(url):
     if not isinstance(url, str) or not url:
         return ""
+    # Some SPC feed image paths are relative, such as /products/outlook/day2otlk.png.
     absolute_url = urljoin("https://www.spc.noaa.gov/", url.strip())
     if is_http_url(absolute_url):
         return absolute_url
@@ -856,6 +859,7 @@ def radar_image_url():
     if not RADAR_STATIONS:
         return ""
     cache_key = datetime.now(TZ).strftime("%Y%m%d%H%M")
+    # Keep radar on the animated GIF loop; the query string nudges Discord past stale caches.
     return f"https://radar.weather.gov/ridge/standard/{RADAR_STATIONS[0]}_loop.gif?v={cache_key}"
 
 
