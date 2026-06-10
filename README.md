@@ -10,7 +10,7 @@ Never commit `.env`, Discord webhook URLs, state files, runtime data, or logs.
 
 ## Project Overview
 
-The bot runs as a single long-lived Python process in Docker. It polls NWS and SPC data, posts selected alerts to Discord, and sends one scheduled daily briefing.
+The bot runs as a single long-lived Python process in Docker. It polls NWS and SPC data, posts selected alerts to Discord, and sends scheduled weather briefings.
 
 The service is designed for an Unraid appdata deployment:
 
@@ -75,7 +75,7 @@ All supported environment variables are shown in `config.example.env`.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `BRIEF_WEBHOOK_URL` | Discord webhook for daily briefings, startup messages, test briefings, and manual briefings. | empty |
+| `BRIEF_WEBHOOK_URL` | Discord webhook for scheduled briefings, startup messages, test briefings, and manual briefings. | empty |
 | `ALERT_WEBHOOK_URL` | Discord webhook for NWS alerts and SPC RSS items. | empty |
 | `NWS_USER_AGENT` | User-Agent sent to NWS/SPC requests. Include a contact email. | `ok-weather-discord-bot/2.4` |
 | `TZ` | Timezone used for scheduling and displayed times. | `America/Chicago` |
@@ -84,6 +84,9 @@ All supported environment variables are shown in `config.example.env`.
 | `SEVERE_THUNDERSTORM_WARNING_MODE` | `all` posts every Severe Thunderstorm Warning; `high_end` only posts stronger-worded warnings. | `all` |
 | `BRIEF_HOUR` | Hour for the daily brief in `TZ`, 24-hour clock. | `9` |
 | `BRIEF_MINUTE` | Minute for the daily brief in `TZ`. | `0` |
+| `AFTERNOON_SEVERE_BRIEF_ENABLED` | Send a rest-of-day severe weather brief in the afternoon. | `true` |
+| `AFTERNOON_SEVERE_BRIEF_HOUR` | Hour for the rest-of-day severe weather brief in `TZ`, 24-hour clock. | `15` |
+| `AFTERNOON_SEVERE_BRIEF_MINUTE` | Minute for the rest-of-day severe weather brief in `TZ`. | `30` |
 | `STATE_FILE` | Persistent JSON state file path inside the container. | `/data/state.json` |
 | `LOG_FILE` | Log file path inside the container. | `/data/weather.log` |
 | `SEND_STARTUP_MESSAGE` | Send a one-time startup message when enabled. | `true` |
@@ -91,7 +94,7 @@ All supported environment variables are shown in `config.example.env`.
 | `TRIGGER_BRIEF_FILE` | File path watched for manual brief requests. | `/data/trigger_brief` |
 | `TRIGGER_ALERT_TEST_FILE` | File path watched for alert webhook test posts. | `/data/trigger_alert_test` |
 | `AFD_OFFICES` | Comma-separated NWS offices used for Forecaster Notes. | `OUN,TSA` |
-| `INCLUDE_BRIEF_IMAGES` | Include SPC outlook map embeds and radar loop embeds. | `true` |
+| `INCLUDE_BRIEF_IMAGES` | Include SPC outlook map images, SPC RSS item images, and radar loop embeds. | `true` |
 | `RADAR_STATIONS` | Comma-separated radar IDs. First station is shown when active notable alerts exist. | `KTLX,KINX,KFDR` |
 | `DISCORD_MAX_RETRIES` | Maximum Discord webhook attempts per post. | `3` |
 
@@ -117,6 +120,7 @@ The bot posts a test message to `ALERT_WEBHOOK_URL` and removes the file after a
 
 - Alerts poll every 180 seconds.
 - Daily brief posts at 9:00 AM Central.
+- Rest-of-day severe weather brief posts at 3:30 PM Central.
 - Dedup state is saved to `./data/state.json`.
 
 ## Notes

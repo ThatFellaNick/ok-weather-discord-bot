@@ -5,6 +5,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from html import unescape
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -18,6 +19,9 @@ ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "180"))
 BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "9"))
 BRIEF_MINUTE = int(os.getenv("BRIEF_MINUTE", "0"))
+AFTERNOON_SEVERE_BRIEF_ENABLED = os.getenv("AFTERNOON_SEVERE_BRIEF_ENABLED", "true").lower() == "true"
+AFTERNOON_SEVERE_BRIEF_HOUR = int(os.getenv("AFTERNOON_SEVERE_BRIEF_HOUR", "15"))
+AFTERNOON_SEVERE_BRIEF_MINUTE = int(os.getenv("AFTERNOON_SEVERE_BRIEF_MINUTE", "30"))
 DISCORD_MAX_RETRIES = int(os.getenv("DISCORD_MAX_RETRIES", "3"))
 HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
 SEVERE_THUNDERSTORM_WARNING_MODE = os.getenv("SEVERE_THUNDERSTORM_WARNING_MODE", "all").lower()
@@ -148,6 +152,7 @@ def load_state():
     state.setdefault("seen_alerts", [])
     state.setdefault("seen_spc", [])
     state.setdefault("last_brief_date", None)
+    state.setdefault("last_afternoon_severe_brief_date", None)
     state.setdefault("startup_sent", False)
     return state
 
@@ -457,15 +462,44 @@ def build_spc_item_embed(entry):
     summary = clean_html(entry.get("summary", ""), 900)
     link = entry.get("link", "")
     embed = {
-        "title": title,
+        "title": f"🌩️ {title}",
         "description": summary or "SPC product mentioning Oklahoma.",
         "color": spc_item_color(title),
         "fields": [],
     }
     if link:
         embed["url"] = link
-    add_embed_field(embed, "Source", "Storm Prediction Center", False)
+    image_url = spc_item_image_url(entry)
+    if INCLUDE_BRIEF_IMAGES and image_url:
+        embed["image"] = {"url": image_url}
+    add_embed_field(embed, "📡 Source", "Storm Prediction Center", False)
     return embed
+
+
+def spc_item_image_url(entry):
+    for media in entry.get("media_content", []) or []:
+        url = media.get("url", "")
+        image_url = normalize_spc_url(url)
+        if image_url:
+            return image_url
+    summary = unescape(entry.get("summary", "") or entry.get("description", ""))
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.I)
+    if match:
+        return normalize_spc_url(unescape(match.group(1)))
+    return ""
+
+
+def normalize_spc_url(url):
+    if not isinstance(url, str) or not url:
+        return ""
+    absolute_url = urljoin("https://www.spc.noaa.gov/", url.strip())
+    if is_http_url(absolute_url):
+        return absolute_url
+    return ""
+
+
+def is_http_url(url):
+    return isinstance(url, str) and url.startswith(("https://", "http://"))
 
 
 def send_new_spc_items(state):
@@ -485,7 +519,7 @@ def send_new_spc_items(state):
             continue
         if post_discord(
             ALERT_WEBHOOK_URL,
-            content="**SPC item mentioning Oklahoma**",
+            content="🌩️ **SPC item mentioning Oklahoma**",
             embeds=[build_spc_item_embed(entry)],
         ):
             new_ids.append(key)
@@ -832,18 +866,18 @@ def add_embed_field(embed, name, value, inline=False):
 
 def spc_embed(day, map_url):
     embed = {
-        "title": f"SPC {day.get('day', 'Outlook')}",
+        "title": f"🗺️ SPC {day.get('day', 'Outlook')}",
         "description": f"Highest Oklahoma signal: **{day.get('risk', 'Unavailable')}**",
         "color": risk_color(day.get("risk", "Unavailable")),
         "url": day.get("url"),
         "fields": [],
     }
-    add_embed_field(embed, "Oklahoma probabilities", format_probabilities(day), False)
+    add_embed_field(embed, "📊 Oklahoma probabilities", format_probabilities(day), False)
     if day.get("summary"):
-        add_embed_field(embed, "SPC national context", day["summary"], False)
+        add_embed_field(embed, "🌎 SPC national context", day["summary"], False)
     if should_show_text_risk_lines(day):
         for risk_line in day.get("risk_lines", [])[:1]:
-            add_embed_field(embed, "Text risk line", risk_line, False)
+            add_embed_field(embed, "⚠️ Text risk line", risk_line, False)
     if INCLUDE_BRIEF_IMAGES:
         embed["image"] = {"url": map_url}
     return embed
@@ -873,7 +907,7 @@ def build_brief_data():
     }
 
 
-def build_brief_embeds(data=None):
+def build_brief_embeds(data=None, title="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
     data = data or build_brief_data()
     day1 = data["day1"]
     day2 = data["day2"]
@@ -883,25 +917,25 @@ def build_brief_embeds(data=None):
     notes = data["forecaster_notes"]
 
     overview = {
-        "title": "Oklahoma Weather Brief",
-        "description": f"_{data['now']}_\n\n**Bottom line:**\n{bottom_line(day1, important)}",
+        "title": title,
+        "description": f"_{data['now']}_\n\n**{bottom_line_label}:**\n{bottom_line(day1, important)}",
         "color": strongest_alert_color(alert_props) if important else risk_color(day1.get("risk", "Unavailable")),
         "fields": [],
     }
     if important:
         alert_lines = [brief_alert_line(p) for p in important[:5]]
-        add_embed_field(overview, f"Active notable alerts: {len(important)}", bullet_list(alert_lines), False)
+        add_embed_field(overview, f"⚠️ Active notable alerts: {len(important)}", bullet_list(alert_lines), False)
     else:
-        add_embed_field(overview, "Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
+        add_embed_field(overview, "✅ Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
     timing = expected_timing(data)
     if timing:
-        add_embed_field(overview, "Expected timing / focus", timing, False)
-    add_embed_field(overview, "City snapshots", bullet_list(forecasts), False)
+        add_embed_field(overview, "⏱️ Expected timing / focus", timing, False)
+    add_embed_field(overview, "🏙️ City snapshots", bullet_list(forecasts), False)
 
     embeds = [overview, spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)]
 
     if notes:
-        notes_embed = {"title": "Forecaster Notes", "color": 0x4A90E2, "fields": []}
+        notes_embed = {"title": "📝 Forecaster Notes", "color": 0x4A90E2, "fields": []}
         for note in notes[:4]:
             add_embed_field(notes_embed, f"NWS {note['office']}", note["text"], False)
         embeds.append(notes_embed)
@@ -910,7 +944,7 @@ def build_brief_embeds(data=None):
         radar = radar_image_url()
         if radar:
             embeds.append({
-                "title": f"{RADAR_STATIONS[0]} Radar",
+                "title": f"📡 {RADAR_STATIONS[0]} Radar",
                 "description": "Active notable alerts are in effect.",
                 "color": strongest_alert_color(alert_props),
                 "image": {"url": radar},
@@ -918,14 +952,14 @@ def build_brief_embeds(data=None):
             })
 
     embeds.append({
-        "title": "Sources",
+        "title": "📚 Sources",
         "description": "NWS active alerts, NWS point forecasts, NWS forecast discussions, SPC Day 1/Day 2 outlook text, SPC GIS, SPC RSS.",
         "color": 0x607D8B,
     })
     return embeds[:10]
 
 
-def build_brief_message(data=None):
+def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
     data = data or build_brief_data()
     important = data["important"]
     day1 = data["day1"]
@@ -934,12 +968,12 @@ def build_brief_message(data=None):
     forecaster_notes = data["forecaster_notes"]
     timing = expected_timing(data)
 
-    lines = ["🌦️ **Oklahoma Weather Brief**", f"_{data['now']}_", ""]
-    lines.append("**Bottom line:**")
+    lines = [f"**{title}**", f"_{data['now']}_", ""]
+    lines.append(f"**{bottom_line_label}:**")
     lines.append(bottom_line(day1, important))
     lines.append("")
 
-    lines.append("**SPC Day 1:**")
+    lines.append("**🗺️ SPC Day 1:**")
     lines.append(f"• Highest Oklahoma signal found: **{day1.get('risk', 'Unavailable')}**")
     lines.append(f"• Oklahoma probabilities: {format_probabilities(day1)}")
     if day1.get("summary"):
@@ -950,7 +984,7 @@ def build_brief_message(data=None):
     lines.append(f"• Link: {day1.get('url')}")
     lines.append("")
 
-    lines.append("**SPC Day 2:**")
+    lines.append("**🗺️ SPC Day 2:**")
     lines.append(f"• Highest Oklahoma signal found: **{day2.get('risk', 'Unavailable')}**")
     lines.append(f"• Oklahoma probabilities: {format_probabilities(day2)}")
     if day2.get("summary"):
@@ -962,25 +996,25 @@ def build_brief_message(data=None):
     lines.append("")
 
     if important:
-        lines.append(f"**Active notable alerts:** {len(important)}")
+        lines.append(f"**⚠️ Active notable alerts:** {len(important)}")
         for p in important[:5]:
             lines.append(f"• {brief_alert_line(p)}")
     else:
-        lines.append("**Active notable alerts:** None found from NWS Oklahoma statewide alerts.")
+        lines.append("**✅ Active notable alerts:** None found from NWS Oklahoma statewide alerts.")
 
     if timing:
         lines.append("")
-        lines.append("**Expected timing / focus:**")
+        lines.append("**⏱️ Expected timing / focus:**")
         lines.append(timing)
 
     lines.append("")
-    lines.append("**City snapshots:**")
+    lines.append("**🏙️ City snapshots:**")
     for f in forecasts:
         lines.append(f"• {f}")
 
     if forecaster_notes:
         lines.append("")
-        lines.append("**Forecaster notes:**")
+        lines.append("**📝 Forecaster notes:**")
         for note in forecaster_notes[:3]:
             lines.append(f"• **NWS {note['office']}**: {note['text']}")
 
@@ -992,10 +1026,10 @@ def build_brief_message(data=None):
     return message
 
 
-def post_brief():
+def post_brief(title="🌦️ Oklahoma Weather Brief", content_prefix="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
     data = build_brief_data()
-    content = f"🌦️ **Oklahoma Weather Brief** — {data['now']}"
-    return post_discord(BRIEF_WEBHOOK_URL, content=content, embeds=build_brief_embeds(data))
+    content = f"**{content_prefix}** - {data['now']}"
+    return post_discord(BRIEF_WEBHOOK_URL, content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
 
 def maybe_send_manual_brief(state):
     """Send a brief when TRIGGER_BRIEF_FILE exists, then remove the file.
@@ -1067,13 +1101,38 @@ def maybe_send_daily_brief(state):
             log.warning("Daily brief was not sent")
 
 
+def maybe_send_afternoon_severe_brief(state):
+    if not AFTERNOON_SEVERE_BRIEF_ENABLED:
+        return
+    now = datetime.now(TZ)
+    today = now.date().isoformat()
+    if (
+        now.hour == AFTERNOON_SEVERE_BRIEF_HOUR
+        and now.minute >= AFTERNOON_SEVERE_BRIEF_MINUTE
+        and state.get("last_afternoon_severe_brief_date") != today
+    ):
+        if post_brief(
+            title="⛈️ Oklahoma Rest-of-Day Severe Weather Brief",
+            content_prefix="⛈️ Oklahoma Rest-of-Day Severe Weather Brief",
+            bottom_line_label="Rest-of-day severe weather",
+        ):
+            state["last_afternoon_severe_brief_date"] = today
+            log.info("Afternoon severe weather brief sent for %s", today)
+        else:
+            log.warning("Afternoon severe weather brief was not sent")
+
+
 def send_startup_message_once(state):
     if not SEND_STARTUP_MESSAGE or state.get("startup_sent"):
         return
+    afternoon_brief_status = "disabled"
+    if AFTERNOON_SEVERE_BRIEF_ENABLED:
+        afternoon_brief_status = f"{AFTERNOON_SEVERE_BRIEF_HOUR:02d}:{AFTERNOON_SEVERE_BRIEF_MINUTE:02d} {TZ.key}"
     msg = (
         "âœ… **Oklahoma Weather Bot Started**\n"
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
+        f"Afternoon severe brief: {afternoon_brief_status}\n"
         "Version: v2.4.3"
     )
     if post_discord(BRIEF_WEBHOOK_URL, content=msg):
@@ -1106,6 +1165,7 @@ def main():
             maybe_send_manual_brief(state)
             maybe_send_alert_test()
             maybe_send_daily_brief(state)
+            maybe_send_afternoon_severe_brief(state)
             save_state(state)
         except Exception as e:
             log.exception("Loop error: %s", e)

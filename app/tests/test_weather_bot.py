@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+from datetime import datetime as real_datetime
 from pathlib import Path
 
 
@@ -111,11 +112,25 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         args, kwargs = calls[0]
-        self.assertEqual(kwargs["content"], "**SPC item mentioning Oklahoma**")
-        self.assertEqual(kwargs["embeds"][0]["title"], entry["title"])
+        self.assertEqual(kwargs["content"], "🌩️ **SPC item mentioning Oklahoma**")
+        self.assertEqual(kwargs["embeds"][0]["title"], f"🌩️ {entry['title']}")
         self.assertEqual(kwargs["embeds"][0]["url"], entry["link"])
+        self.assertEqual(kwargs["embeds"][0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
         self.assertIn("SLIGHT RISK", kwargs["embeds"][0]["description"])
         self.assertNotIn("<pre>", kwargs["embeds"][0]["description"])
+
+    def test_spc_item_image_url_accepts_relative_feed_images(self):
+        entry = {
+            "summary": (
+                'SPC Day 2 Outlook <br /><a href="/products/outlook/day2otlk.html">'
+                '<img alt="Day 2 Outlook Image" src="/products/outlook/day2otlk.png" />'
+                "</a>"
+            )
+        }
+
+        image_url = weather_bot.spc_item_image_url(entry)
+
+        self.assertEqual(image_url, "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
 
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
@@ -222,8 +237,8 @@ class SpcParsingTests(unittest.TestCase):
 
         embeds = weather_bot.build_brief_embeds(data)
 
-        self.assertTrue(any(embed["title"] == "Forecaster Notes" for embed in embeds))
-        self.assertTrue(any("image" in embed for embed in embeds if embed["title"].startswith("SPC")))
+        self.assertTrue(any(embed["title"] == "📝 Forecaster Notes" for embed in embeds))
+        self.assertTrue(any("image" in embed for embed in embeds if "SPC" in embed["title"]))
         city_field = embeds[0]["fields"][1]["value"]
         self.assertTrue(city_field.startswith("• OKC"))
 
@@ -242,7 +257,7 @@ class SpcParsingTests(unittest.TestCase):
         embeds = weather_bot.build_brief_embeds(data)
 
         self.assertEqual(embeds[0]["color"], 0xFF0000)
-        self.assertEqual(embeds[1]["fields"][1]["name"], "SPC national context")
+        self.assertEqual(embeds[1]["fields"][1]["name"], "🌎 SPC national context")
         self.assertTrue(any(embed.get("color") == 0xFF0000 for embed in embeds if embed["title"].endswith("Radar")))
 
     def test_watch_alert_line_summarizes_count_and_expiration(self):
@@ -269,6 +284,47 @@ class SpcParsingTests(unittest.TestCase):
         timing = weather_bot.expected_timing(data)
 
         self.assertIn("this evening", timing)
+
+    def test_afternoon_severe_brief_posts_once_after_scheduled_time(self):
+        class FixedDateTime:
+            @classmethod
+            def now(cls, tz):
+                return real_datetime(2026, 6, 8, 15, 31, tzinfo=tz)
+
+        calls = []
+        old_datetime = weather_bot.datetime
+        old_enabled = weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED
+        old_post = weather_bot.post_brief
+        weather_bot.datetime = FixedDateTime
+        weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED = True
+        weather_bot.post_brief = lambda **kwargs: calls.append(kwargs) or True
+        state = {"last_afternoon_severe_brief_date": None}
+        try:
+            weather_bot.maybe_send_afternoon_severe_brief(state)
+            weather_bot.maybe_send_afternoon_severe_brief(state)
+        finally:
+            weather_bot.datetime = old_datetime
+            weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED = old_enabled
+            weather_bot.post_brief = old_post
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(state["last_afternoon_severe_brief_date"], "2026-06-08")
+        self.assertEqual(calls[0]["title"], "⛈️ Oklahoma Rest-of-Day Severe Weather Brief")
+        self.assertEqual(calls[0]["bottom_line_label"], "Rest-of-day severe weather")
+
+    def test_afternoon_severe_brief_respects_disabled_flag(self):
+        calls = []
+        old_enabled = weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED
+        old_post = weather_bot.post_brief
+        weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED = False
+        weather_bot.post_brief = lambda **kwargs: calls.append(kwargs) or True
+        try:
+            weather_bot.maybe_send_afternoon_severe_brief({"last_afternoon_severe_brief_date": None})
+        finally:
+            weather_bot.AFTERNOON_SEVERE_BRIEF_ENABLED = old_enabled
+            weather_bot.post_brief = old_post
+
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
