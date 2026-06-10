@@ -1,4 +1,20 @@
-﻿import json
+﻿"""Oklahoma Weather Discord Bot.
+
+Runs as a long-lived Docker service for Oklahoma weather monitoring.
+
+Responsibilities:
+- Poll NWS active alerts and SPC products.
+- Post selected Oklahoma alerts and SPC items to Discord.
+- Send scheduled Oklahoma weather briefings with SPC, radar, city forecast,
+  and forecaster-discussion context.
+- Store dedupe and scheduling state under the Docker /data mount.
+
+Security notes:
+- Discord webhook URLs must come from environment variables only.
+- Runtime state, logs, and local .env files are not source files.
+"""
+
+import json
 import logging
 import os
 import re
@@ -12,6 +28,7 @@ import feedparser
 import requests
 from dateutil import parser as dtparser
 
+# Runtime configuration loaded from Docker/.env.
 TZ = ZoneInfo(os.getenv("TZ", "America/Chicago"))
 NWS_USER_AGENT = os.getenv("NWS_USER_AGENT", "ok-weather-discord-bot/2.4")
 BRIEF_WEBHOOK_URL = os.getenv("BRIEF_WEBHOOK_URL", "")
@@ -35,6 +52,7 @@ AFD_OFFICES = [office.strip().upper() for office in os.getenv("AFD_OFFICES", "OU
 INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
 RADAR_STATIONS = [station.strip().upper() for station in os.getenv("RADAR_STATIONS", "KTLX,KINX,KFDR").split(",") if station.strip()]
 
+# External data sources used by the bot.
 NWS_ALERTS_OK = "https://api.weather.gov/alerts/active?area=OK"
 NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/locations/{office}/latest"
 SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
@@ -46,6 +64,7 @@ SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.png"
 SPC_OUTLOOK_MAPSERVER = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer"
 OKLAHOMA_BBOX = "-103.1,33.5,-94.4,37.1"
 
+# NOAA MapServer layer IDs for SPC categorical and hazard probability products.
 SPC_GIS_LAYERS = {
     "Day 1": {
         "category": 1,
@@ -89,6 +108,7 @@ HIGH_SIGNAL_EVENTS = {
     "Severe Thunderstorm Watch",
 }
 
+# Shared parsing and presentation tables.
 OKLAHOMA_WORDS = re.compile(
     r"\b(oklahoma|\bok\b|okc|oklahoma city|tulsa|norman|lawton|enid|ardmore|woodward|ponca|stillwater|mcalester|altus|guymon|elk city|clinton|chickasha|shawnee|seminole|ada|durant|idabel)\b",
     re.I,
@@ -141,6 +161,7 @@ logging.basicConfig(
 log = logging.getLogger("ok-weather-bot")
 
 
+# Persistent state helpers.
 def load_state():
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -168,6 +189,7 @@ def save_state(state):
     os.replace(temp_file, STATE_FILE)
 
 
+# HTTP and Discord delivery helpers.
 def get(url, accept="application/json"):
     headers = {"User-Agent": NWS_USER_AGENT, "Accept": accept}
     for attempt in range(1, HTTP_MAX_RETRIES + 1):
@@ -246,6 +268,7 @@ def post_discord(webhook_url, content=None, embeds=None):
     return False
 
 
+# Text cleanup and small formatting helpers.
 def clean(text, max_len=900):
     if not text:
         return ""
@@ -300,6 +323,7 @@ def brief_alert_line(props):
     return f"**{event}**: {clean(props.get('areaDesc', ''), 120)}"
 
 
+# NWS alert fetching, filtering, and embed formatting.
 def fetch_active_ok_alerts():
     data = get_json(NWS_ALERTS_OK)
     return data.get("features", [])
@@ -430,6 +454,7 @@ def send_new_nws_alerts(state):
         log.info("Sent %s NWS alert(s)", sent)
 
 
+# SPC RSS item filtering and Discord card formatting.
 def fetch_spc_entries():
     feed = feedparser.parse(SPC_RSS)
     return feed.entries[:40]
@@ -533,6 +558,7 @@ def send_new_spc_items(state):
         log.info("Sent %s SPC item(s)", sent)
 
 
+# SPC Day 1/Day 2 outlook text parsing.
 def parse_spc_outlook(text, day_label, url):
     outlook = {"day": day_label, "url": url, "headline": "", "risk": "None found", "risk_lines": [], "summary": ""}
     if not text:
@@ -593,6 +619,7 @@ def fetch_spc_outlook(url, label):
         return {"day": label, "url": url, "headline": "", "risk": "Unavailable", "summary": "", "risk_lines": []}
 
 
+# SPC GIS probability and categorical risk summaries for Oklahoma.
 def fetch_spc_gis_layer(layer_id):
     params = {
         "f": "json",
@@ -713,6 +740,7 @@ def merged_spc_day(text_outlook, gis_summary):
     return merged
 
 
+# Forecast discussion, probability, timing, and city forecast summaries.
 def format_probabilities(outlook):
     probabilities = outlook.get("probabilities", {})
     if not probabilities:
@@ -836,6 +864,7 @@ def city_forecast_summary(name, lat, lon):
         return f"{name}: forecast unavailable"
 
 
+# Briefing text, images, and Discord embeds.
 def bottom_line(day1, active_alerts):
     risk = day1.get("risk", "Unavailable")
     if active_alerts:
@@ -1035,6 +1064,8 @@ def post_brief(title="🌦️ Oklahoma Weather Brief", content_prefix="🌦️ O
     content = f"**{content_prefix}** - {data['now']}"
     return post_discord(BRIEF_WEBHOOK_URL, content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
 
+
+# Manual triggers, scheduled briefings, startup messages, and main loop.
 def maybe_send_manual_brief(state):
     """Send a brief when TRIGGER_BRIEF_FILE exists, then remove the file.
 
