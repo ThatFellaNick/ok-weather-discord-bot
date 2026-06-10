@@ -35,7 +35,7 @@ The service is designed for an Unraid appdata deployment:
   tornado, hail, and wind probability polygons:
   `https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer`
 - SPC outlook map images:
-  `https://www.spc.noaa.gov/products/outlook/day1otlk.gif`
+  `https://www.spc.noaa.gov/products/outlook/day1otlk.png`
 - NWS radar loop images from `radar.weather.gov`.
 
 ## Setup on Unraid

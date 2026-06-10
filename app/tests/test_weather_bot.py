@@ -243,6 +243,22 @@ class SpcParsingTests(unittest.TestCase):
         self.assertTrue(city_field.startswith("• OKC"))
 
 
+    def test_build_brief_embeds_uses_png_spc_maps(self):
+        data = {
+            "alerts": [],
+            "important": [],
+            "day1": {"day": "Day 1", "risk": "Slight", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
+            "day2": {"day": "Day 2", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
+            "forecasts": ["OKC: forecast"],
+            "forecaster_notes": [],
+            "now": "Monday, June 1 at 9:00 PM",
+        }
+
+        embeds = weather_bot.build_brief_embeds(data)
+
+        self.assertEqual(embeds[1]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
+        self.assertEqual(embeds[2]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
+
     def test_overview_uses_strongest_alert_color_when_alerts_exist(self):
         data = {
             "alerts": [{"properties": {"event": "Tornado Warning", "severity": "Extreme"}}],

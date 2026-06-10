@@ -40,8 +40,8 @@ NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/loca
 SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
 SPC_DAY1_TXT = "https://www.spc.noaa.gov/products/outlook/day1otlk.txt"
 SPC_DAY2_TXT = "https://www.spc.noaa.gov/products/outlook/day2otlk.txt"
-SPC_DAY1_MAP = "https://www.spc.noaa.gov/products/outlook/day1otlk.gif"
-SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.gif"
+SPC_DAY1_MAP = "https://www.spc.noaa.gov/products/outlook/day1otlk.png"
+SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.png"
 SPC_OUTLOOK_MAPSERVER = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer"
 OKLAHOMA_BBOX = "-103.1,33.5,-94.4,37.1"
 
