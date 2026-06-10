@@ -52,6 +52,12 @@ AFD_OFFICES = [office.strip().upper() for office in os.getenv("AFD_OFFICES", "OU
 INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
 RADAR_STATIONS = [station.strip().upper() for station in os.getenv("RADAR_STATIONS", "KTLX,KINX,KFDR").split(",") if station.strip()]
 
+RADAR_STATION_POINTS = {
+    "KTLX": (35.333, -97.277),
+    "KINX": (36.175, -95.564),
+    "KFDR": (34.362, -98.976),
+}
+
 # External data sources used by the bot.
 NWS_ALERTS_OK = "https://api.weather.gov/alerts/active?area=OK"
 NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/locations/{office}/latest"
@@ -355,7 +361,7 @@ def should_send_alert(props):
 
 def alert_color(event, severity):
     if event in {"Tornado Warning", "Tornado Watch"}:
-        return 0xFF0000
+        return 0xB00020
     if event in {"Severe Thunderstorm Warning", "Severe Thunderstorm Watch"}:
         return 0xFF9900
     if event in {"Flash Flood Warning"}:
@@ -374,6 +380,39 @@ def alert_severity_label(event, severity, urgency="", certainty=""):
     return " / ".join(parts)
 
 
+def alert_title(event, title, props):
+    base = title or f"{event}{watch_number(props)}"
+    if event == "Tornado Warning":
+        return f"🚨🌪️ {base}"
+    if event == "Severe Thunderstorm Warning":
+        return f"⚠️⛈️ {base}"
+    return base
+
+
+def alert_headline(event, headline):
+    if event == "Tornado Warning":
+        return f"🚨 **TAKE SHELTER NOW:** {headline}"
+    if event == "Severe Thunderstorm Warning":
+        return f"⚠️ **SEVERE STORM WARNING:** {headline}"
+    return f"**{headline}**"
+
+
+def alert_importance_text(event):
+    if event == "Tornado Warning":
+        return "Highest priority alert. Move to shelter immediately if you are in the warned area."
+    if event == "Severe Thunderstorm Warning":
+        return "High priority alert. Damaging wind, hail, and frequent lightning may be possible."
+    return ""
+
+
+def alert_post_content(event):
+    if event == "Tornado Warning":
+        return "🚨🌪️ **TORNADO WARNING for Oklahoma**"
+    if event == "Severe Thunderstorm Warning":
+        return "⚠️⛈️ **Severe Thunderstorm Warning for Oklahoma**"
+    return f"**New Oklahoma weather alert:** {event}"
+
+
 def alert_time_label(name, value):
     formatted = format_local_time(value)
     if formatted == "Unknown":
@@ -388,7 +427,55 @@ def alert_footer(props):
     return "\n".join(part for part in (sent, effective, expires) if part)
 
 
-def build_alert_embed(props, *, title=None, description=None):
+def geometry_center(geometry):
+    points = []
+
+    def collect(value):
+        if not isinstance(value, list):
+            return
+        if len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+            points.append((float(value[1]), float(value[0])))
+            return
+        for item in value:
+            collect(item)
+
+    collect((geometry or {}).get("coordinates", []))
+    if not points:
+        return None
+    lat = sum(point[0] for point in points) / len(points)
+    lon = sum(point[1] for point in points) / len(points)
+    return lat, lon
+
+
+def nearest_radar_station(geometry=None):
+    if not RADAR_STATIONS:
+        return ""
+    center = geometry_center(geometry)
+    candidates = [station for station in RADAR_STATIONS if station in RADAR_STATION_POINTS]
+    if not center or not candidates:
+        return RADAR_STATIONS[0]
+    lat, lon = center
+    return min(candidates, key=lambda station: (RADAR_STATION_POINTS[station][0] - lat) ** 2 + (RADAR_STATION_POINTS[station][1] - lon) ** 2)
+
+
+def radar_image_url(station=None):
+    station = station or (RADAR_STATIONS[0] if RADAR_STATIONS else "")
+    if not station:
+        return ""
+    cache_key = datetime.now(TZ).strftime("%Y%m%d%H%M")
+    # Keep radar on the animated GIF loop; the query string nudges Discord past stale caches.
+    return f"https://radar.weather.gov/ridge/standard/{station}_loop.gif?v={cache_key}"
+
+
+def alert_radar_image_url(event, geometry=None):
+    if not INCLUDE_BRIEF_IMAGES:
+        return ""
+    if event not in {"Tornado Warning", "Severe Thunderstorm Warning"}:
+        return ""
+    return radar_image_url(nearest_radar_station(geometry))
+
+
+def build_alert_embed(props, *, title=None, description=None, geometry=None):
     event = props.get("event", "Weather Alert")
     severity = props.get("severity", "")
     urgency = props.get("urgency", "")
@@ -397,26 +484,32 @@ def build_alert_embed(props, *, title=None, description=None):
     headline = clean(props.get("headline", event), 250)
     desc = clean(description if description is not None else props.get("description", ""), 900)
     instr = clean(props.get("instruction", ""), 650)
+    importance = alert_importance_text(event)
 
     embed = {
-        "title": title or f"{event}{watch_number(props)}",
-        "description": f"**{headline}**" + (f"\n\n{desc}" if desc else ""),
+        "title": alert_title(event, title, props),
+        "description": alert_headline(event, headline) + (f"\n\n{desc}" if desc else ""),
         "color": alert_color(event, severity),
         "url": props.get("@id") or props.get("id") or "https://alerts.weather.gov",
         "fields": [],
     }
-    add_embed_field(embed, "Affected area", area or "Oklahoma", False)
-    add_embed_field(embed, "Severity", alert_severity_label(event, severity, urgency, certainty), True)
-    add_embed_field(embed, "Timing", alert_footer(props), True)
+    if importance:
+        add_embed_field(embed, "🚨 Importance", importance, False)
+    add_embed_field(embed, "📍 Affected area", area or "Oklahoma", False)
+    add_embed_field(embed, "🚨 Severity", alert_severity_label(event, severity, urgency, certainty), True)
+    add_embed_field(embed, "⏱️ Timing", alert_footer(props), True)
     if instr:
-        add_embed_field(embed, "Instruction", instr, False)
+        add_embed_field(embed, "📢 Instruction", instr, False)
+    radar = alert_radar_image_url(event, geometry)
+    if radar:
+        embed["image"] = {"url": radar}
     return embed
 
 
 def strongest_alert_color(alerts):
     priority = {
+        0xB00020: 6,
         0xFF0000: 5,
-        0xB00020: 4,
         0xFF9900: 3,
         0x00AEEF: 2,
         0x607D8B: 1,
@@ -444,8 +537,8 @@ def send_new_nws_alerts(state):
         if key in seen:
             continue
         event = props.get("event", "Weather Alert")
-        embed = build_alert_embed(props)
-        if post_discord(ALERT_WEBHOOK_URL, content=f"**New Oklahoma weather alert:** {event}", embeds=[embed]):
+        embed = build_alert_embed(props, geometry=feature.get("geometry"))
+        if post_discord(ALERT_WEBHOOK_URL, content=alert_post_content(event), embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -882,14 +975,6 @@ def bottom_line(day1, active_alerts):
 
 def risk_color(risk):
     return RISK_COLORS.get(risk, 0x607D8B)
-
-
-def radar_image_url():
-    if not RADAR_STATIONS:
-        return ""
-    cache_key = datetime.now(TZ).strftime("%Y%m%d%H%M")
-    # Keep radar on the animated GIF loop; the query string nudges Discord past stale caches.
-    return f"https://radar.weather.gov/ridge/standard/{RADAR_STATIONS[0]}_loop.gif?v={cache_key}"
 
 
 def add_embed_field(embed, name, value, inline=False):

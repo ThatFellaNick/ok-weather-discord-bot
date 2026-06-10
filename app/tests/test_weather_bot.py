@@ -199,6 +199,51 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertTrue(weather_bot.should_send_alert(props))
 
+    def test_severe_thunderstorm_warning_embed_is_high_priority_with_radar(self):
+        props = {
+            "event": "Severe Thunderstorm Warning",
+            "severity": "Severe",
+            "urgency": "Immediate",
+            "certainty": "Observed",
+            "headline": "Severe Thunderstorm Warning",
+            "description": "70 mph wind gusts and quarter size hail.",
+            "instruction": "Move indoors.",
+            "areaDesc": "Tulsa, OK",
+            "@id": "https://example.test/severe",
+        }
+        geometry = {"type": "Point", "coordinates": [-95.99, 36.15]}
+
+        embed = weather_bot.build_alert_embed(props, geometry=geometry)
+
+        self.assertTrue(embed["title"].startswith("⚠️⛈️"))
+        self.assertIn("SEVERE STORM WARNING", embed["description"])
+        self.assertEqual(embed["color"], 0xFF9900)
+        self.assertEqual(embed["fields"][0]["name"], "🚨 Importance")
+        self.assertEqual(embed["fields"][1]["name"], "📍 Affected area")
+        self.assertIn("/KINX_loop.gif", embed["image"]["url"])
+
+    def test_tornado_warning_embed_is_highest_priority_with_radar(self):
+        props = {
+            "event": "Tornado Warning",
+            "severity": "Extreme",
+            "urgency": "Immediate",
+            "certainty": "Observed",
+            "headline": "Tornado Warning",
+            "description": "Confirmed tornado near Norman.",
+            "instruction": "Take shelter now.",
+            "areaDesc": "Cleveland, OK",
+            "@id": "https://example.test/tornado",
+        }
+        geometry = {"type": "Point", "coordinates": [-97.44, 35.22]}
+
+        embed = weather_bot.build_alert_embed(props, geometry=geometry)
+
+        self.assertTrue(embed["title"].startswith("🚨🌪️"))
+        self.assertIn("TAKE SHELTER NOW", embed["description"])
+        self.assertIn("Highest priority alert", embed["fields"][0]["value"])
+        self.assertEqual(embed["color"], 0xB00020)
+        self.assertIn("/KTLX_loop.gif", embed["image"]["url"])
+
     def test_parse_afd_notes_prefers_key_messages(self):
         text = """
         Area Forecast Discussion
@@ -272,9 +317,9 @@ class SpcParsingTests(unittest.TestCase):
 
         embeds = weather_bot.build_brief_embeds(data)
 
-        self.assertEqual(embeds[0]["color"], 0xFF0000)
+        self.assertEqual(embeds[0]["color"], 0xB00020)
         self.assertEqual(embeds[1]["fields"][1]["name"], "🌎 SPC national context")
-        self.assertTrue(any(embed.get("color") == 0xFF0000 for embed in embeds if embed["title"].endswith("Radar")))
+        self.assertTrue(any(embed.get("color") == 0xB00020 for embed in embeds if embed["title"].endswith("Radar")))
 
     def test_watch_alert_line_summarizes_count_and_expiration(self):
         props = {
