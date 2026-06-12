@@ -132,6 +132,24 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(image_url, "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
 
+    def test_spc_watch_summary_uses_primary_threats_not_full_product(self):
+        entry = {
+            "title": "SPC Severe Thunderstorm Watch 316",
+            "summary": (
+                "WW 316 SEVERE TSTM OK TX 112050Z - 120300Z URGENT - IMMEDIATE BROADCAST REQUESTED "
+                "Primary threats include... Scattered large hail and isolated very large hail events to 2 inches in diameter possible. "
+                "Scattered damaging gusts to 70 mph possible. SUMMARY... Thunderstorms will likely develop along a cold front across Oklahoma."
+            ),
+            "link": "https://example.test/watch",
+        }
+
+        embed = weather_bot.build_spc_item_embed(entry)
+
+        self.assertIn("large hail", embed["description"])
+        self.assertIn("70 mph", embed["description"])
+        self.assertNotIn("URGENT - IMMEDIATE BROADCAST REQUESTED", embed["description"])
+        self.assertLess(len(embed["description"]), 360)
+
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
             "id": "spc-day1-no-ok",
@@ -243,6 +261,31 @@ class SpcParsingTests(unittest.TestCase):
         self.assertIn("Highest priority alert", embed["fields"][0]["value"])
         self.assertEqual(embed["color"], 0xB00020)
         self.assertIn("/KTLX_loop.gif", embed["image"]["url"])
+
+    def test_watch_alert_embed_compacts_area_and_description(self):
+        props = {
+            "event": "Severe Thunderstorm Watch",
+            "severity": "Severe",
+            "urgency": "Future",
+            "certainty": "Possible",
+            "headline": "Severe Thunderstorm Watch issued until 9 PM CDT",
+            "description": (
+                "THE NATIONAL WEATHER SERVICE HAS ISSUED SEVERE THUNDERSTORM WATCH 314 IN EFFECT UNTIL 9 PM "
+                "FOR THE FOLLOWING AREAS IN OKLAHOMA THIS WATCH INCLUDES 19 COUNTIES. "
+                "Primary threats include... Scattered large hail and isolated very large hail events to 2 inches possible. "
+                "Scattered damaging wind gusts to 70 mph possible."
+            ),
+            "areaDesc": "Adair, OK; Cherokee, OK; Craig, OK; Creek, OK; Delaware, OK; Mayes, OK; McIntosh, OK; Muskogee, OK; Nowata, OK; Okfuskee, OK",
+            "@id": "https://example.test/watch",
+        }
+
+        embed = weather_bot.build_alert_embed(props)
+
+        self.assertIn("large hail", embed["description"])
+        self.assertIn("70 mph", embed["description"])
+        self.assertNotIn("THE NATIONAL WEATHER SERVICE", embed["description"])
+        self.assertIn("10 areas:", embed["fields"][0]["value"])
+        self.assertIn("+2 more", embed["fields"][0]["value"])
 
     def test_parse_afd_notes_prefers_key_messages(self):
         text = """

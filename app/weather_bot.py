@@ -427,6 +427,86 @@ def alert_footer(props):
     return "\n".join(part for part in (sent, effective, expires) if part)
 
 
+def compact_area_desc(area_desc, max_items=8):
+    areas = [part.strip() for part in re.split(r";", area_desc or "") if part.strip()]
+    if not areas:
+        return ""
+    if len(areas) <= max_items:
+        return "; ".join(areas)
+    shown = "; ".join(areas[:max_items])
+    return f"{len(areas)} areas: {shown}; +{len(areas) - max_items} more"
+
+
+def product_sentence(text, max_len=180):
+    text = clean(text.strip(" .;:-"), max_len)
+    if not text:
+        return ""
+    if text.isupper():
+        text = text.capitalize()
+    return text
+
+
+def first_sentences(text, limit=2):
+    sentences = []
+    for sentence in re.split(r"(?<=[.!?])\s+", clean(text, 1200)):
+        sentence = product_sentence(sentence)
+        if not sentence:
+            continue
+        if re.search(r"national weather service|following areas|this watch includes", sentence, re.I):
+            continue
+        sentences.append(sentence)
+        if len(sentences) >= limit:
+            break
+    return sentences
+
+
+def labeled_product_lines(text, labels):
+    lines = []
+    for label in labels:
+        pattern = rf"\b{label}\b\.*\s*(.*?)(?=\b(?:{'|'.join(labels)})\b\.*|$)"
+        match = re.search(pattern, text, re.I | re.S)
+        if match:
+            value = product_sentence(match.group(1), 190)
+            if value:
+                lines.append(f"**{label.title()}:** {value}")
+    return lines
+
+
+def primary_threat_lines(text, max_items=3):
+    match = re.search(r"primary threats include\.*(.*?)(?=\bsummary\b|\bdiscussion\b|\bprecautionary\b|&&|$)", text, re.I | re.S)
+    if not match:
+        return []
+    threat_text = clean(match.group(1), 700)
+    parts = re.split(r"\s*\.\.\.\s*|(?<=[.!?])\s+", threat_text)
+    lines = []
+    for part in parts:
+        item = product_sentence(part, 170)
+        if item:
+            lines.append(item)
+        if len(lines) >= max_items:
+            break
+    return lines
+
+
+def summary_section_lines(text, max_items=2):
+    match = re.search(r"\bsummary\b\.*\s*(.*?)(?=\bdiscussion\b|\bprecautionary\b|&&|$)", text, re.I | re.S)
+    if not match:
+        return []
+    return first_sentences(match.group(1), max_items)
+
+
+def concise_product_summary(text, *, fallback="Details unavailable."):
+    text = clean_html(text, 1800)
+    lines = primary_threat_lines(text)
+    if not lines:
+        lines = summary_section_lines(text)
+    if not lines:
+        lines = labeled_product_lines(text, ["HAZARD", "SOURCE", "IMPACT"])
+    if not lines:
+        lines = first_sentences(text)
+    return bullet_list(lines) or fallback
+
+
 def geometry_center(geometry):
     points = []
 
@@ -480,9 +560,9 @@ def build_alert_embed(props, *, title=None, description=None, geometry=None):
     severity = props.get("severity", "")
     urgency = props.get("urgency", "")
     certainty = props.get("certainty", "")
-    area = clean(props.get("areaDesc", ""), 700)
+    area = clean(compact_area_desc(props.get("areaDesc", "")), 700)
     headline = clean(props.get("headline", event), 250)
-    desc = clean(description if description is not None else props.get("description", ""), 900)
+    desc = concise_product_summary(description if description is not None else props.get("description", ""))
     instr = clean(props.get("instruction", ""), 650)
     importance = alert_importance_text(event)
 
@@ -578,11 +658,11 @@ def spc_item_color(title):
 
 def build_spc_item_embed(entry):
     title = clean(entry.get("title", "SPC product"), 250)
-    summary = clean_html(entry.get("summary", ""), 900)
+    summary = concise_product_summary(entry.get("summary", ""), fallback="SPC product mentioning Oklahoma.")
     link = entry.get("link", "")
     embed = {
         "title": f"🌩️ {title}",
-        "description": summary or "SPC product mentioning Oklahoma.",
+        "description": summary,
         "color": spc_item_color(title),
         "fields": [],
     }
