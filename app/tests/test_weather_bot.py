@@ -234,7 +234,7 @@ class SpcParsingTests(unittest.TestCase):
 
         content = weather_bot.alert_post_content("Special Weather Statement", props)
 
-        self.assertEqual(content, "**New Oklahoma weather alert:** Special Weather Statement - in/near 4 areas: Tulsa, OK; Rogers, OK; +2 more")
+        self.assertEqual(content, "**Special Weather Statement** - in/near 4 areas: Tulsa, OK; Rogers, OK; +2 more")
 
     def test_tornado_alert_post_content_includes_area(self):
         props = {

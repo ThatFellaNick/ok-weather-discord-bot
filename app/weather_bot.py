@@ -416,7 +416,7 @@ def alert_post_content(event, props=None):
         return f"🚨🌪️ **TORNADO WARNING:** in/near {area}"
     if event == "Severe Thunderstorm Warning":
         return f"⚠️⛈️ **Severe Thunderstorm Warning:** in/near {area}"
-    return f"**New Oklahoma weather alert:** {event} - in/near {area}"
+    return f"**{event}** - in/near {area}"
 
 
 def alert_time_label(name, value):
