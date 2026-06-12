@@ -413,10 +413,10 @@ def notification_area(props):
 def alert_post_content(event, props=None):
     area = notification_area(props)
     if event == "Tornado Warning":
-        return f"🚨🌪️ **TORNADO WARNING:** {area}"
+        return f"🚨🌪️ **TORNADO WARNING:** in/near {area}"
     if event == "Severe Thunderstorm Warning":
-        return f"⚠️⛈️ **Severe Thunderstorm Warning:** {area}"
-    return f"**New Oklahoma weather alert:** {event} - {area}"
+        return f"⚠️⛈️ **Severe Thunderstorm Warning:** in/near {area}"
+    return f"**New Oklahoma weather alert:** {event} - in/near {area}"
 
 
 def alert_time_label(name, value):
@@ -683,7 +683,26 @@ def build_spc_item_embed(entry):
 
 def spc_item_content(entry):
     title = clean(entry.get("title", "SPC product"), 120)
+    location = spc_item_location(entry)
+    if location:
+        return f"🌩️ **SPC item mentioning Oklahoma:** {title} - near {location}"
     return f"🌩️ **SPC item mentioning Oklahoma:** {title}"
+
+
+def spc_item_location(entry):
+    text = clean_html(entry.get("summary", "") or entry.get("description", ""), 1800)
+    location_patterns = [
+        r"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
+        r"\b((?:central|northern|southern|eastern|western|northeastern|northwestern|southeastern|southwestern)[^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
+    ]
+    for pattern in location_patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            location = re.sub(r"\s+", " ", match.group(1)).strip(" .,:;-")
+            return clean(location, 90)
+    if OKLAHOMA_WORDS.search(text):
+        return "Oklahoma/nearby region"
+    return ""
 
 
 def spc_item_image_url(entry):

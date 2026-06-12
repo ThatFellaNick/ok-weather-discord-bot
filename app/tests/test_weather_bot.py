@@ -112,7 +112,7 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         args, kwargs = calls[0]
-        self.assertEqual(kwargs["content"], f"🌩️ **SPC item mentioning Oklahoma:** {entry['title']}")
+        self.assertEqual(kwargs["content"], f"🌩️ **SPC item mentioning Oklahoma:** {entry['title']} - near OKLAHOMA")
         self.assertEqual(kwargs["embeds"][0]["title"], f"🌩️ {entry['title']}")
         self.assertEqual(kwargs["embeds"][0]["url"], entry["link"])
         self.assertEqual(kwargs["embeds"][0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
@@ -149,6 +149,16 @@ class SpcParsingTests(unittest.TestCase):
         self.assertIn("70 mph", embed["description"])
         self.assertNotIn("URGENT - IMMEDIATE BROADCAST REQUESTED", embed["description"])
         self.assertLess(len(embed["description"]), 360)
+
+    def test_spc_item_content_includes_extracted_location(self):
+        entry = {
+            "title": "SPC MD 1098",
+            "summary": "SUMMARY... Risk of large hail and damaging winds spreading eastward across central/northeastern Oklahoma and southeast Kansas.",
+        }
+
+        content = weather_bot.spc_item_content(entry)
+
+        self.assertEqual(content, "🌩️ **SPC item mentioning Oklahoma:** SPC MD 1098 - near central/northeastern Oklahoma and southeast Kansas")
 
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
@@ -224,7 +234,7 @@ class SpcParsingTests(unittest.TestCase):
 
         content = weather_bot.alert_post_content("Special Weather Statement", props)
 
-        self.assertEqual(content, "**New Oklahoma weather alert:** Special Weather Statement - 4 areas: Tulsa, OK; Rogers, OK; +2 more")
+        self.assertEqual(content, "**New Oklahoma weather alert:** Special Weather Statement - in/near 4 areas: Tulsa, OK; Rogers, OK; +2 more")
 
     def test_tornado_alert_post_content_includes_area(self):
         props = {
@@ -233,7 +243,7 @@ class SpcParsingTests(unittest.TestCase):
 
         content = weather_bot.alert_post_content("Tornado Warning", props)
 
-        self.assertEqual(content, "🚨🌪️ **TORNADO WARNING:** 3 areas: Cleveland, OK; Oklahoma, OK; +1 more")
+        self.assertEqual(content, "🚨🌪️ **TORNADO WARNING:** in/near 3 areas: Cleveland, OK; Oklahoma, OK; +1 more")
 
     def test_severe_thunderstorm_warning_embed_is_high_priority_with_radar(self):
         props = {
