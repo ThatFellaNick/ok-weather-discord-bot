@@ -112,7 +112,7 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         args, kwargs = calls[0]
-        self.assertEqual(kwargs["content"], "🌩️ **SPC item mentioning Oklahoma**")
+        self.assertEqual(kwargs["content"], f"🌩️ **SPC item mentioning Oklahoma:** {entry['title']}")
         self.assertEqual(kwargs["embeds"][0]["title"], f"🌩️ {entry['title']}")
         self.assertEqual(kwargs["embeds"][0]["url"], entry["link"])
         self.assertEqual(kwargs["embeds"][0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
@@ -216,6 +216,24 @@ class SpcParsingTests(unittest.TestCase):
         }
 
         self.assertTrue(weather_bot.should_send_alert(props))
+
+    def test_alert_post_content_includes_compact_area(self):
+        props = {
+            "areaDesc": "Tulsa, OK; Rogers, OK; Wagoner, OK; Mayes, OK",
+        }
+
+        content = weather_bot.alert_post_content("Special Weather Statement", props)
+
+        self.assertEqual(content, "**New Oklahoma weather alert:** Special Weather Statement - 4 areas: Tulsa, OK; Rogers, OK; +2 more")
+
+    def test_tornado_alert_post_content_includes_area(self):
+        props = {
+            "areaDesc": "Cleveland, OK; Oklahoma, OK; McClain, OK",
+        }
+
+        content = weather_bot.alert_post_content("Tornado Warning", props)
+
+        self.assertEqual(content, "🚨🌪️ **TORNADO WARNING:** 3 areas: Cleveland, OK; Oklahoma, OK; +1 more")
 
     def test_severe_thunderstorm_warning_embed_is_high_priority_with_radar(self):
         props = {

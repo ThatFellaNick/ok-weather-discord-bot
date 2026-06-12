@@ -405,12 +405,18 @@ def alert_importance_text(event):
     return ""
 
 
-def alert_post_content(event):
+def notification_area(props):
+    area = compact_area_desc((props or {}).get("areaDesc", ""), max_items=2)
+    return area or "Oklahoma"
+
+
+def alert_post_content(event, props=None):
+    area = notification_area(props)
     if event == "Tornado Warning":
-        return "🚨🌪️ **TORNADO WARNING for Oklahoma**"
+        return f"🚨🌪️ **TORNADO WARNING:** {area}"
     if event == "Severe Thunderstorm Warning":
-        return "⚠️⛈️ **Severe Thunderstorm Warning for Oklahoma**"
-    return f"**New Oklahoma weather alert:** {event}"
+        return f"⚠️⛈️ **Severe Thunderstorm Warning:** {area}"
+    return f"**New Oklahoma weather alert:** {event} - {area}"
 
 
 def alert_time_label(name, value):
@@ -618,7 +624,7 @@ def send_new_nws_alerts(state):
             continue
         event = props.get("event", "Weather Alert")
         embed = build_alert_embed(props, geometry=feature.get("geometry"))
-        if post_discord(ALERT_WEBHOOK_URL, content=alert_post_content(event), embeds=[embed]):
+        if post_discord(ALERT_WEBHOOK_URL, content=alert_post_content(event, props), embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -675,6 +681,11 @@ def build_spc_item_embed(entry):
     return embed
 
 
+def spc_item_content(entry):
+    title = clean(entry.get("title", "SPC product"), 120)
+    return f"🌩️ **SPC item mentioning Oklahoma:** {title}"
+
+
 def spc_item_image_url(entry):
     for media in entry.get("media_content", []) or []:
         url = media.get("url", "")
@@ -720,7 +731,7 @@ def send_new_spc_items(state):
             continue
         if post_discord(
             ALERT_WEBHOOK_URL,
-            content="🌩️ **SPC item mentioning Oklahoma**",
+            content=spc_item_content(entry),
             embeds=[build_spc_item_embed(entry)],
         ):
             new_ids.append(key)
