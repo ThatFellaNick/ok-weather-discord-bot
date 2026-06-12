@@ -685,8 +685,8 @@ def spc_item_content(entry):
     title = clean(entry.get("title", "SPC product"), 120)
     location = spc_item_location(entry)
     if location:
-        return f"🌩️ **SPC item mentioning Oklahoma:** {title} - near {location}"
-    return f"🌩️ **SPC item mentioning Oklahoma:** {title}"
+        return f"🌩️ **SPC Item:** {title} - near {location}"
+    return f"🌩️ **SPC Item:** {title}"
 
 
 def spc_item_location(entry):

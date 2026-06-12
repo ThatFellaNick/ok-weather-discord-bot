@@ -112,7 +112,7 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         args, kwargs = calls[0]
-        self.assertEqual(kwargs["content"], f"🌩️ **SPC item mentioning Oklahoma:** {entry['title']} - near OKLAHOMA")
+        self.assertEqual(kwargs["content"], f"🌩️ **SPC Item:** {entry['title']} - near OKLAHOMA")
         self.assertEqual(kwargs["embeds"][0]["title"], f"🌩️ {entry['title']}")
         self.assertEqual(kwargs["embeds"][0]["url"], entry["link"])
         self.assertEqual(kwargs["embeds"][0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
@@ -158,7 +158,7 @@ class SpcParsingTests(unittest.TestCase):
 
         content = weather_bot.spc_item_content(entry)
 
-        self.assertEqual(content, "🌩️ **SPC item mentioning Oklahoma:** SPC MD 1098 - near central/northeastern Oklahoma and southeast Kansas")
+        self.assertEqual(content, "🌩️ **SPC Item:** SPC MD 1098 - near central/northeastern Oklahoma and southeast Kansas")
 
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
