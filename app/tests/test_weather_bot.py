@@ -160,6 +160,31 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(content, "🌩️ **SPC Item:** SPC MD 1098 - near central/northeastern Oklahoma and southeast Kansas")
 
+    def test_spc_status_report_without_oklahoma_location_is_ignored(self):
+        entry = {
+            "id": "spc-watch-336-status",
+            "title": "SPC Tornado Watch 336 Status Reports",
+            "summary": (
+                "WW 0336 Status Updates STATUS REPORT ON WW 336 SEVERE WEATHER THREAT CONTINUES "
+                "RIGHT OF A LINE FROM 20 NNW MGW TO 30 SSW DUJ TO 25 ESE BFD TO 45 NE BFD. "
+                "For additional information see mesoscale discussion 1145. "
+                "NWS Storm Prediction Center Norman OK ATTN...WFO...PBZ...CTP"
+            ),
+            "link": "https://example.test/status",
+        }
+        calls = []
+        old_fetch = weather_bot.fetch_spc_entries
+        old_post = weather_bot.post_discord
+        weather_bot.fetch_spc_entries = lambda: [entry]
+        weather_bot.post_discord = lambda *args, **kwargs: calls.append((args, kwargs)) or True
+        try:
+            weather_bot.send_new_spc_items({"seen_spc": []})
+        finally:
+            weather_bot.fetch_spc_entries = old_fetch
+            weather_bot.post_discord = old_post
+
+        self.assertEqual(calls, [])
+
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
             "id": "spc-day1-no-ok",

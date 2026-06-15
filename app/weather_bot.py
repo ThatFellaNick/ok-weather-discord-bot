@@ -645,8 +645,39 @@ def entry_id(entry):
 
 def spc_oklahoma_search_text(entry, summary):
     text = f"{entry.get('title', '')} {summary}"
-    text = re.sub(r"\bNWS Storm Prediction Center\s+Norman\s+OK\b", " ", text, flags=re.I)
+    text = re.sub(r"\bNWS Storm Prediction Center\s+Norman\s+(?:OK|Oklahoma)\b", " ", text, flags=re.I)
+    text = re.sub(r"\bStorm Prediction Center\s+Norman\s+(?:OK|Oklahoma)\b", " ", text, flags=re.I)
+    text = re.sub(r"\bATTN\.\.\.WFO\.\.\.[A-Z.]+", " ", text, flags=re.I)
     return clean(text, 2000)
+
+
+def spc_explicit_location(entry):
+    text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
+    location_patterns = [
+        r"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
+        r"\b((?:central|northern|southern|eastern|western|northeastern|northwestern|southeastern|southwestern)[^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
+    ]
+    for pattern in location_patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            location = re.sub(r"\s+", " ", match.group(1)).strip(" .,:;-")
+            return clean(location, 90)
+    return ""
+
+
+def spc_status_report(entry):
+    title = entry.get("title", "")
+    return bool(re.search(r"\bstatus (?:report|reports|update|updates)\b", title, re.I))
+
+
+def should_post_spc_item(entry, summary):
+    combined = spc_oklahoma_search_text(entry, summary)
+    if not SPC_IMPORTANT.search(combined):
+        return False
+    location = spc_explicit_location(entry)
+    if spc_status_report(entry) and not location:
+        return False
+    return bool(location or OKLAHOMA_WORDS.search(combined))
 
 
 def spc_item_color(title):
@@ -690,16 +721,10 @@ def spc_item_content(entry):
 
 
 def spc_item_location(entry):
-    text = clean_html(entry.get("summary", "") or entry.get("description", ""), 1800)
-    location_patterns = [
-        r"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
-        r"\b((?:central|northern|southern|eastern|western|northeastern|northwestern|southeastern|southwestern)[^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
-    ]
-    for pattern in location_patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            location = re.sub(r"\s+", " ", match.group(1)).strip(" .,:;-")
-            return clean(location, 90)
+    location = spc_explicit_location(entry)
+    if location:
+        return location
+    text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
     if OKLAHOMA_WORDS.search(text):
         return "Oklahoma/nearby region"
     return ""
@@ -738,12 +763,8 @@ def send_new_spc_items(state):
     new_ids = []
     sent = 0
     for entry in fetch_spc_entries():
-        title = entry.get("title", "")
         summary = clean_html(entry.get("summary", ""), 700)
-        combined = spc_oklahoma_search_text(entry, summary)
-        if not SPC_IMPORTANT.search(combined):
-            continue
-        if not OKLAHOMA_WORDS.search(combined):
+        if not should_post_spc_item(entry, summary):
             continue
         key = entry_id(entry)
         if key in seen:
