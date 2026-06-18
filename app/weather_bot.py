@@ -188,7 +188,8 @@ def load_state():
 def save_state(state):
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     state["seen_alerts"] = state.get("seen_alerts", [])[-500:]
-    state["seen_spc"] = state.get("seen_spc", [])[-500:]
+    # SPC stores multiple aliases per product so RSS ID drift cannot repost it.
+    state["seen_spc"] = state.get("seen_spc", [])[-1200:]
     temp_file = f"{STATE_FILE}.tmp"
     with open(temp_file, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
@@ -643,6 +644,25 @@ def entry_id(entry):
     return entry.get("id") or entry.get("link") or entry.get("title", "")
 
 
+def normalize_spc_identity(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def spc_entry_keys(entry):
+    keys = set()
+    for field in ("id", "link", "title"):
+        raw = str(entry.get(field, "") or "").strip()
+        if not raw:
+            continue
+        # Keep raw values for compatibility with state written by older versions.
+        keys.add(raw)
+        keys.add(f"{field}:{normalize_spc_identity(raw)}")
+    fallback = entry_id(entry)
+    if fallback:
+        keys.add(str(fallback))
+    return keys
+
+
 def spc_oklahoma_search_text(entry, summary):
     text = f"{entry.get('title', '')} {summary}"
     text = re.sub(r"\bNWS Storm Prediction Center\s+Norman\s+(?:OK|Oklahoma)\b", " ", text, flags=re.I)
@@ -760,24 +780,24 @@ def is_http_url(url):
 
 def send_new_spc_items(state):
     seen = set(state.get("seen_spc", []))
-    new_ids = []
+    new_keys = []
     sent = 0
     for entry in fetch_spc_entries():
         summary = clean_html(entry.get("summary", ""), 700)
         if not should_post_spc_item(entry, summary):
             continue
-        key = entry_id(entry)
-        if key in seen:
+        keys = spc_entry_keys(entry)
+        if seen.intersection(keys):
             continue
         if post_discord(
             ALERT_WEBHOOK_URL,
             content=spc_item_content(entry),
             embeds=[build_spc_item_embed(entry)],
         ):
-            new_ids.append(key)
-            seen.add(key)
+            new_keys.extend(sorted(keys))
+            seen.update(keys)
             sent += 1
-    state.setdefault("seen_spc", []).extend(new_ids)
+    state.setdefault("seen_spc", []).extend(new_keys)
     if sent:
         log.info("Sent %s SPC item(s)", sent)
 

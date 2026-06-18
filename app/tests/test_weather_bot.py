@@ -185,6 +185,32 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_spc_items_dedupe_when_feed_id_changes(self):
+        first_entry = {
+            "id": "rss-id-1",
+            "title": "SPC Jun 17, 2026 2000 UTC Day 1 Convective Outlook",
+            "summary": "SUMMARY... Severe storms are possible across western Oklahoma this evening.",
+            "link": "https://www.spc.noaa.gov/products/outlook/day1otlk_2000.html",
+        }
+        second_entry = dict(first_entry, id="rss-id-2")
+        calls = []
+        state = {"seen_spc": []}
+        old_fetch = weather_bot.fetch_spc_entries
+        old_post = weather_bot.post_discord
+        weather_bot.post_discord = lambda *args, **kwargs: calls.append((args, kwargs)) or True
+        try:
+            weather_bot.fetch_spc_entries = lambda: [first_entry]
+            weather_bot.send_new_spc_items(state)
+            weather_bot.fetch_spc_entries = lambda: [second_entry]
+            weather_bot.send_new_spc_items(state)
+        finally:
+            weather_bot.fetch_spc_entries = old_fetch
+            weather_bot.post_discord = old_post
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn(first_entry["link"], state["seen_spc"])
+        self.assertIn(f"title:{first_entry['title'].lower()}", state["seen_spc"])
+
     def test_spc_items_ignore_norman_ok_office_header(self):
         entry = {
             "id": "spc-day1-no-ok",
