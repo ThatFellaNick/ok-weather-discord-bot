@@ -406,8 +406,10 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertTrue(any(embed["title"] == "📝 Forecaster Notes" for embed in embeds))
         self.assertTrue(any("image" in embed for embed in embeds if "SPC" in embed["title"]))
-        city_field = embeds[0]["fields"][1]["value"]
-        self.assertTrue(city_field.startswith("• OKC"))
+        city_embed = next(embed for embed in embeds if embed["title"].endswith("City snapshots"))
+        self.assertEqual(city_embed["fields"][0]["name"], "OKC")
+        self.assertEqual(city_embed["fields"][0]["value"], "forecast")
+        self.assertFalse(any(field["name"].endswith("City snapshots") for field in embeds[0]["fields"]))
 
 
     def test_build_brief_embeds_uses_png_spc_maps(self):
@@ -423,8 +425,9 @@ class SpcParsingTests(unittest.TestCase):
 
         embeds = weather_bot.build_brief_embeds(data)
 
-        self.assertEqual(embeds[1]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
-        self.assertEqual(embeds[2]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
+        spc_embeds = [embed for embed in embeds if "SPC" in embed["title"]]
+        self.assertEqual(spc_embeds[0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
+        self.assertEqual(spc_embeds[1]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
 
     def test_overview_uses_strongest_alert_color_when_alerts_exist(self):
         data = {
@@ -440,7 +443,11 @@ class SpcParsingTests(unittest.TestCase):
         embeds = weather_bot.build_brief_embeds(data)
 
         self.assertEqual(embeds[0]["color"], 0xB00020)
-        self.assertEqual(embeds[1]["fields"][1]["name"], "🌎 SPC national context")
+        alert_embed = next(embed for embed in embeds if embed["title"].endswith("Active notable alerts: 1"))
+        self.assertEqual(alert_embed["fields"][0]["name"], "Tornado Warning")
+        self.assertIn("Canadian, OK", alert_embed["fields"][0]["value"])
+        day1_embed = next(embed for embed in embeds if embed["title"].endswith("SPC Day 1"))
+        self.assertEqual(day1_embed["fields"][1]["name"], "🌎 SPC national context")
         self.assertTrue(any(embed.get("color") == 0xB00020 for embed in embeds if embed["title"].endswith("Radar")))
 
     def test_watch_alert_line_summarizes_count_and_expiration(self):

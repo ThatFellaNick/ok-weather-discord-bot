@@ -1099,9 +1099,9 @@ def city_forecast_summary(name, lat, lon):
             return f"{name}: forecast unavailable"
         first = periods[0]
         second = periods[1] if len(periods) > 1 else None
-        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 42)}"
+        line = f"{name}: {first.get('name','Today')} {first.get('temperature','?')}°{first.get('temperatureUnit','F')}, {clean(first.get('shortForecast',''), 32)}"
         if second:
-            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 42)}"
+            line += f" | {second.get('name','Tonight')} {second.get('temperature','?')}°{second.get('temperatureUnit','F')}, {clean(second.get('shortForecast',''), 32)}"
         return line
     except Exception as e:
         log.warning("Forecast failed for %s: %s", name, e)
@@ -1131,6 +1131,35 @@ def risk_color(risk):
 def add_embed_field(embed, name, value, inline=False):
     value = clean(value, 1000) or "Unavailable"
     embed.setdefault("fields", []).append({"name": name, "value": value, "inline": inline})
+
+
+def active_alerts_embed(important):
+    """Present active alerts as separate rows instead of one dense paragraph."""
+    embed = {
+        "title": f"⚠️ Active notable alerts: {len(important)}",
+        "color": strongest_alert_color(important),
+        "fields": [],
+    }
+    for props in important[:5]:
+        event = f"{props.get('event', 'Alert')}{watch_number(props)}"
+        area = compact_area_desc(props.get("areaDesc", ""), max_items=3) or "Area unavailable"
+        expires = format_local_time(props.get("expires"))
+        add_embed_field(embed, event, f"📍 {area}\n⏱️ Expires {expires}", False)
+    if len(important) > 5:
+        embed["description"] = f"Showing 5 of {len(important)} active alerts."
+    return embed
+
+
+def city_snapshots_embed(forecasts):
+    """Give each city its own row so forecasts remain readable on mobile."""
+    embed = {"title": "🏙️ City snapshots", "color": 0x4A90E2, "fields": []}
+    for forecast in forecasts:
+        city, separator, details = forecast.partition(":")
+        if not separator:
+            add_embed_field(embed, "Forecast", forecast, False)
+            continue
+        add_embed_field(embed, city.strip(), details.strip().replace(" | ", "\n"), False)
+    return embed
 
 
 def spc_embed(day, map_url):
@@ -1191,17 +1220,16 @@ def build_brief_embeds(data=None, title="🌦️ Oklahoma Weather Brief", bottom
         "color": strongest_alert_color(alert_props) if important else risk_color(day1.get("risk", "Unavailable")),
         "fields": [],
     }
-    if important:
-        alert_lines = [brief_alert_line(p) for p in important[:5]]
-        add_embed_field(overview, f"⚠️ Active notable alerts: {len(important)}", bullet_list(alert_lines), False)
-    else:
-        add_embed_field(overview, "✅ Active notable alerts", "None found from NWS Oklahoma statewide alerts.", False)
     timing = expected_timing(data)
     if timing:
         add_embed_field(overview, "⏱️ Expected timing / focus", timing, False)
-    add_embed_field(overview, "🏙️ City snapshots", bullet_list(forecasts), False)
 
-    embeds = [overview, spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)]
+    embeds = [overview]
+    if important:
+        embeds.append(active_alerts_embed(important))
+    if forecasts:
+        embeds.append(city_snapshots_embed(forecasts))
+    embeds.extend([spc_embed(day1, SPC_DAY1_MAP), spc_embed(day2, SPC_DAY2_MAP)])
 
     if notes:
         notes_embed = {"title": "📝 Forecaster Notes", "color": 0x4A90E2, "fields": []}
