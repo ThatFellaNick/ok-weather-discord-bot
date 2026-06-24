@@ -1,6 +1,6 @@
-# Oklahoma Weather Discord Bot
+# US Weather Discord Bot
 
-Python Docker service for Unraid that posts Oklahoma NWS/SPC alerts to Discord and sends a daily Oklahoma weather brief.
+Python Docker service that posts NWS/SPC weather alerts to Discord and sends scheduled weather briefings for a configurable US state or radius around one or more GPS points. The default profile remains Oklahoma.
 
 ## Important
 
@@ -8,65 +8,126 @@ Regenerate Discord webhooks before using this if you pasted them into ChatGPT or
 
 Never commit `.env`, Discord webhook URLs, state files, runtime data, or logs.
 
-## Project Overview
+## What It Does
 
-The bot runs as a single long-lived Python process in Docker. It polls NWS and SPC data, posts selected alerts to Discord, and sends scheduled weather briefings.
+- Polls NWS active alerts by state, plus exact NWS point alerts when a radius is configured.
+- Filters alert polygons to `TARGET_RADIUS_MILES` around `TARGET_POINTS` when radius mode is enabled.
+- Posts selected warnings, watches, special weather statements, and SPC RSS items to Discord.
+- Sends daily and optional afternoon severe weather briefings.
+- Includes NWS point forecasts, Area Forecast Discussion notes, SPC Day 1/Day 2 outlooks, SPC GIS risk summaries, and optional radar/SPC images.
+- Stores dedupe and schedule state in Docker `/data`.
 
-The service is designed for an Unraid appdata deployment:
-
-- Source files live under `/mnt/user/appdata/ok-weather-discord-bot/`.
-- Runtime state and logs are stored in `./data`, mounted into the container as `/data`.
-- Configuration comes from `.env`, based on `config.example.env`.
-
-## Data Sources
-
-- NWS active alerts for Oklahoma:
-  `https://api.weather.gov/alerts/active?area=OK`
-- NWS point forecasts for configured Oklahoma city snapshots.
-- NWS Area Forecast Discussions for configured offices:
-  `https://api.weather.gov/products/types/AFD/locations/{office}/latest`
-- SPC RSS feed:
-  `https://www.spc.noaa.gov/products/spcrss.xml`
-- SPC Day 1 convective outlook text:
-  `https://www.spc.noaa.gov/products/outlook/day1otlk.txt`
-- SPC Day 2 convective outlook text:
-  `https://www.spc.noaa.gov/products/outlook/day2otlk.txt`
-- NOAA/NWS SPC outlook map service for Oklahoma-intersecting categorical,
-  tornado, hail, and wind probability polygons:
-  `https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer`
-- SPC outlook map images:
-  `https://www.spc.noaa.gov/products/outlook/day1otlk.png`
-- NWS radar loop images from `radar.weather.gov`.
-
-## Setup on Unraid
-
-1. Open Unraid web UI.
-2. Go to `Shares` and make sure you have an `appdata` share.
-3. Create this folder on your server:
-   `/mnt/user/appdata/ok-weather-discord-bot/`
-4. Copy the contents of this folder into it.
-5. Copy `config.example.env` to `.env`.
-6. Edit `.env`.
-7. Set `BRIEF_WEBHOOK_URL` and `ALERT_WEBHOOK_URL` to regenerated Discord webhooks.
-8. Replace `your_email@example.com` in `NWS_USER_AGENT` with your email. NWS asks API users to identify their app/user-agent.
-9. In Unraid, open a terminal and run:
+## Quick Start on Any Docker Host
 
 ```bash
-cd /mnt/user/appdata/ok-weather-discord-bot
+git clone https://github.com/YOUR_GITHUB_USER/ok-weather-discord-bot.git
+cd ok-weather-discord-bot
+cp config.example.env .env
+mkdir -p data
+```
+
+Edit `.env`, at minimum:
+
+- `BRIEF_WEBHOOK_URL`
+- `ALERT_WEBHOOK_URL`
+- `NWS_USER_AGENT`, including your contact email
+- `TARGET_NAME`
+- `TARGET_STATES`
+- `TARGET_POINTS` if you want forecast points or radius mode
+
+Start it:
+
+```bash
 docker compose up -d --build
 ```
 
-## View logs
+View logs:
 
 ```bash
 docker logs -f ok-weather-bot
 ```
 
-## Stop
+Stop it:
+
+```bash
+docker compose down
+```
+
+## Updating After a Release
+
+If you cloned the repo, keep your `.env` and `data/` folder in place and pull the latest code:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+If you run from a downloaded ZIP instead of git, download the new release, copy your existing `.env` and `data/` folder into the new folder, then run:
+
+```bash
+docker compose up -d --build
+```
+
+## Target Setup
+
+Whole-state Oklahoma, the default:
+
+```env
+TARGET_NAME=Oklahoma
+TARGET_STATES=OK
+TARGET_POINTS=OKC:35.4676,-97.5164;Tulsa:36.1540,-95.9928;Lawton:34.6036,-98.3959
+TARGET_RADIUS_MILES=0
+```
+
+Whole-state Kansas:
+
+```env
+TARGET_NAME=Kansas
+TARGET_STATES=KS
+TARGET_POINTS=Wichita:37.6872,-97.3301;Topeka:39.0473,-95.6752
+TARGET_RADIUS_MILES=0
+```
+
+Fifty miles around one town or custom GPS point:
+
+```env
+TARGET_NAME=Wichita Metro
+TARGET_STATES=KS
+TARGET_POINTS=Wichita:37.6872,-97.3301
+TARGET_RADIUS_MILES=50
+```
+
+For city/town setups, look up the town's latitude and longitude and put it in `TARGET_POINTS`. `TARGET_STATES` should include the state being monitored; use multiple states for border areas, such as `TARGET_STATES=KS,OK`.
+
+## Multiple Discord Channels
+
+Use the single webhook variables for normal setups:
+
+```env
+BRIEF_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
+ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
+```
+
+To post to more than one channel, add extra URLs to the plural variables:
+
+```env
+BRIEF_WEBHOOK_URLS=https://discord.com/api/webhooks/REPLACE_ME,https://discord.com/api/webhooks/REPLACE_ME
+ALERT_WEBHOOK_URLS=https://discord.com/api/webhooks/REPLACE_ME https://discord.com/api/webhooks/REPLACE_ME
+```
+
+## Unraid Notes
+
+The service is still friendly to an Unraid appdata deployment:
+
+- Source files can live under `/mnt/user/appdata/ok-weather-discord-bot/`.
+- Runtime state and logs stay in `./data`, mounted into the container as `/data`.
+- Configuration comes from `.env`, based on `config.example.env`.
+
+Typical Unraid start command:
 
 ```bash
 cd /mnt/user/appdata/ok-weather-discord-bot
-docker compose down
+docker compose up -d --build
 ```
 
 ## Environment Variables
@@ -76,8 +137,15 @@ All supported environment variables are shown in `config.example.env`.
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `BRIEF_WEBHOOK_URL` | Discord webhook for scheduled briefings, startup messages, test briefings, and manual briefings. | empty |
+| `BRIEF_WEBHOOK_URLS` | Optional extra brief webhooks, separated by commas or spaces. | empty |
 | `ALERT_WEBHOOK_URL` | Discord webhook for NWS alerts and SPC RSS items. | empty |
+| `ALERT_WEBHOOK_URLS` | Optional extra alert webhooks, separated by commas or spaces. | empty |
 | `NWS_USER_AGENT` | User-Agent sent to NWS/SPC requests. Include a contact email. | `ok-weather-discord-bot/2.4` |
+| `TARGET_NAME` | Human-readable area name used in Discord posts. | `Oklahoma` |
+| `TARGET_STATES` | Comma-separated state abbreviations for NWS alert polling. | `OK` |
+| `TARGET_POINTS` | Semicolon-separated `Name:lat,lon` forecast/radius points. | Oklahoma points |
+| `TARGET_RADIUS_MILES` | `0` for whole-state mode, or a mile radius around `TARGET_POINTS`. | `0` |
+| `TARGET_BBOX` | Optional SPC GIS envelope as `west,south,east,north`. | built in |
 | `TZ` | Timezone used for scheduling and displayed times. | `America/Chicago` |
 | `POLL_SECONDS` | Main polling loop interval in seconds. | `180` |
 | `HTTP_MAX_RETRIES` | Maximum attempts for each NWS/SPC source fetch. | `3` |
@@ -85,7 +153,7 @@ All supported environment variables are shown in `config.example.env`.
 | `BRIEF_HOUR` | Hour for the daily brief in `TZ`, 24-hour clock. | `9` |
 | `BRIEF_MINUTE` | Minute for the daily brief in `TZ`. | `0` |
 | `AFTERNOON_SEVERE_BRIEF_ENABLED` | Send a rest-of-day severe weather brief in the afternoon. | `true` |
-| `AFTERNOON_SEVERE_BRIEF_HOUR` | Hour for the rest-of-day severe weather brief in `TZ`, 24-hour clock. | `15` |
+| `AFTERNOON_SEVERE_BRIEF_HOUR` | Hour for the rest-of-day severe weather brief in `TZ`. | `15` |
 | `AFTERNOON_SEVERE_BRIEF_MINUTE` | Minute for the rest-of-day severe weather brief in `TZ`. | `30` |
 | `STATE_FILE` | Persistent JSON state file path inside the container. | `/data/state.json` |
 | `LOG_FILE` | Log file path inside the container. | `/data/weather.log` |
@@ -98,12 +166,12 @@ All supported environment variables are shown in `config.example.env`.
 | `RADAR_STATIONS` | Comma-separated radar IDs. First station is shown when active notable alerts exist. | `KTLX,KINX,KFDR` |
 | `DISCORD_MAX_RETRIES` | Maximum Discord webhook attempts per post. | `3` |
 
-## Manual Brief Trigger
+## Manual Triggers
 
-Create the trigger file on the Unraid host to request a briefing outside the scheduled time:
+Create the trigger file on the Docker host to request a briefing outside the scheduled time:
 
 ```bash
-touch /mnt/user/appdata/ok-weather-discord-bot/data/trigger_brief
+touch ./data/trigger_brief
 ```
 
 The bot checks for this file during the normal polling loop. After a successful Discord post, it removes the trigger file. If posting fails, the file is left in place so the next loop can retry.
@@ -111,17 +179,10 @@ The bot checks for this file during the normal polling loop. After a successful 
 To test the alert webhook directly:
 
 ```bash
-touch /mnt/user/appdata/ok-weather-discord-bot/data/trigger_alert_test
+touch ./data/trigger_alert_test
 ```
 
-The bot posts a test message to `ALERT_WEBHOOK_URL` and removes the file after a successful post.
-
-## Defaults
-
-- Alerts poll every 180 seconds.
-- Daily brief posts at 9:00 AM Central.
-- Rest-of-day severe weather brief posts at 3:30 PM Central.
-- Dedup state is saved to `./data/state.json`.
+The bot posts a test message to the alert webhook(s) and removes the file after a successful post.
 
 ## Notes
 

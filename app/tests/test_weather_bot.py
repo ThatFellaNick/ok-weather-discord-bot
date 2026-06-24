@@ -391,6 +391,34 @@ class SpcParsingTests(unittest.TestCase):
     def test_clean_repairs_mojibake_degree_symbol(self):
         self.assertEqual(weather_bot.clean("73Â°F"), "73°F")
 
+    def test_split_webhook_urls_accepts_multiple_values(self):
+        urls = weather_bot.split_webhook_urls(
+            "https://discord.com/api/webhooks/one",
+            "https://discord.com/api/webhooks/two, https://discord.com/api/webhooks/one",
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://discord.com/api/webhooks/one",
+                "https://discord.com/api/webhooks/two",
+            ],
+        )
+
+    def test_target_bbox_combines_multiple_states(self):
+        old_states = weather_bot.TARGET_STATES
+        old_radius = weather_bot.TARGET_RADIUS_MILES
+        old_bbox = weather_bot.TARGET_BBOX
+        weather_bot.TARGET_STATES = ["KS", "MO"]
+        weather_bot.TARGET_RADIUS_MILES = 0
+        weather_bot.TARGET_BBOX = ""
+        try:
+            self.assertEqual(weather_bot.target_bbox(), "-102.100,35.900,-89.100,40.700")
+        finally:
+            weather_bot.TARGET_STATES = old_states
+            weather_bot.TARGET_RADIUS_MILES = old_radius
+            weather_bot.TARGET_BBOX = old_bbox
+
     def test_build_brief_embeds_includes_forecaster_notes(self):
         data = {
             "alerts": [],

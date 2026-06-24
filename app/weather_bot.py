@@ -1,11 +1,11 @@
-﻿"""Oklahoma Weather Discord Bot.
+﻿"""US Weather Discord Bot.
 
-Runs as a long-lived Docker service for Oklahoma weather monitoring.
+Runs as a long-lived Docker service for configurable US weather monitoring.
 
 Responsibilities:
 - Poll NWS active alerts and SPC products.
-- Post selected Oklahoma alerts and SPC items to Discord.
-- Send scheduled Oklahoma weather briefings with SPC, radar, city forecast,
+- Post selected regional alerts and SPC items to Discord.
+- Send scheduled regional weather briefings with SPC, radar, forecast point,
   and forecaster-discussion context.
 - Store dedupe and scheduling state under the Docker /data mount.
 
@@ -33,6 +33,8 @@ TZ = ZoneInfo(os.getenv("TZ", "America/Chicago"))
 NWS_USER_AGENT = os.getenv("NWS_USER_AGENT", "ok-weather-discord-bot/2.4")
 BRIEF_WEBHOOK_URL = os.getenv("BRIEF_WEBHOOK_URL", "")
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
+BRIEF_WEBHOOK_URLS = os.getenv("BRIEF_WEBHOOK_URLS", "")
+ALERT_WEBHOOK_URLS = os.getenv("ALERT_WEBHOOK_URLS", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "180"))
 BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "9"))
 BRIEF_MINUTE = int(os.getenv("BRIEF_MINUTE", "0"))
@@ -51,6 +53,11 @@ TRIGGER_ALERT_TEST_FILE = os.getenv("TRIGGER_ALERT_TEST_FILE", "/data/trigger_al
 AFD_OFFICES = [office.strip().upper() for office in os.getenv("AFD_OFFICES", "OUN,TSA").split(",") if office.strip()]
 INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
 RADAR_STATIONS = [station.strip().upper() for station in os.getenv("RADAR_STATIONS", "KTLX,KINX,KFDR").split(",") if station.strip()]
+TARGET_NAME = os.getenv("TARGET_NAME", "Oklahoma")
+TARGET_STATES = [state.strip().upper() for state in os.getenv("TARGET_STATES", os.getenv("TARGET_STATE", "OK")).split(",") if state.strip()]
+TARGET_POINTS_RAW = os.getenv("TARGET_POINTS", "")
+TARGET_RADIUS_MILES = float(os.getenv("TARGET_RADIUS_MILES", "0") or "0")
+TARGET_BBOX = os.getenv("TARGET_BBOX", "")
 
 RADAR_STATION_POINTS = {
     "KTLX": (35.333, -97.277),
@@ -59,7 +66,7 @@ RADAR_STATION_POINTS = {
 }
 
 # External data sources used by the bot.
-NWS_ALERTS_OK = "https://api.weather.gov/alerts/active?area=OK"
+NWS_ALERTS_ACTIVE = "https://api.weather.gov/alerts/active"
 NWS_PRODUCT_LATEST = "https://api.weather.gov/products/types/{product_type}/locations/{office}/latest"
 SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
 SPC_DAY1_TXT = "https://www.spc.noaa.gov/products/outlook/day1otlk.txt"
@@ -69,6 +76,60 @@ SPC_DAY1_MAP = "https://www.spc.noaa.gov/products/outlook/day1otlk.png"
 SPC_DAY2_MAP = "https://www.spc.noaa.gov/products/outlook/day2otlk.png"
 SPC_OUTLOOK_MAPSERVER = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer"
 OKLAHOMA_BBOX = "-103.1,33.5,-94.4,37.1"
+TARGET_POINTS_DEFAULT = "OKC:35.4676,-97.5164;Tulsa:36.1540,-95.9928;Lawton:34.6036,-98.3959"
+STATE_BBOXES = {
+    "AL": "-88.5,30.1,-84.9,35.1",
+    "AK": "-179.2,51.2,-129.9,71.5",
+    "AZ": "-114.9,31.2,-109.0,37.1",
+    "AR": "-94.7,33.0,-89.6,36.5",
+    "CA": "-124.5,32.5,-114.1,42.1",
+    "CO": "-109.1,36.9,-102.0,41.1",
+    "CT": "-73.8,40.9,-71.8,42.1",
+    "DE": "-75.8,38.4,-75.0,39.9",
+    "FL": "-87.7,24.4,-80.0,31.1",
+    "GA": "-85.7,30.3,-80.8,35.1",
+    "HI": "-160.3,18.8,-154.8,22.3",
+    "ID": "-117.3,42.0,-111.0,49.1",
+    "IL": "-91.6,36.9,-87.0,42.6",
+    "IN": "-88.2,37.7,-84.8,41.8",
+    "IA": "-96.7,40.3,-90.1,43.6",
+    "KS": "-102.1,36.9,-94.5,40.1",
+    "KY": "-89.6,36.4,-81.9,39.2",
+    "LA": "-94.1,28.9,-88.8,33.1",
+    "ME": "-71.2,43.0,-66.9,47.5",
+    "MD": "-79.6,37.8,-75.0,39.8",
+    "MA": "-73.6,41.2,-69.9,42.9",
+    "MI": "-90.5,41.7,-82.1,48.4",
+    "MN": "-97.3,43.4,-89.5,49.4",
+    "MS": "-91.7,30.1,-88.1,35.1",
+    "MO": "-95.8,35.9,-89.1,40.7",
+    "MT": "-116.1,44.3,-104.0,49.1",
+    "NE": "-104.1,39.9,-95.3,43.1",
+    "NV": "-120.1,35.0,-114.0,42.1",
+    "NH": "-72.6,42.7,-70.6,45.4",
+    "NJ": "-75.6,38.8,-73.9,41.4",
+    "NM": "-109.1,31.3,-103.0,37.1",
+    "NY": "-79.8,40.4,-71.8,45.1",
+    "NC": "-84.4,33.8,-75.4,36.7",
+    "ND": "-104.1,45.9,-96.5,49.1",
+    "OH": "-84.9,38.4,-80.5,42.1",
+    "OK": OKLAHOMA_BBOX,
+    "OR": "-124.7,41.9,-116.4,46.4",
+    "PA": "-80.6,39.7,-74.7,42.6",
+    "RI": "-71.9,41.1,-71.1,42.1",
+    "SC": "-83.4,32.0,-78.5,35.3",
+    "SD": "-104.1,42.4,-96.4,45.9",
+    "TN": "-90.4,34.9,-81.6,36.8",
+    "TX": "-106.7,25.8,-93.5,36.6",
+    "UT": "-114.1,36.9,-109.0,42.1",
+    "VT": "-73.5,42.7,-71.4,45.1",
+    "VA": "-83.8,36.5,-75.2,39.5",
+    "WA": "-124.9,45.5,-116.9,49.1",
+    "WV": "-82.7,37.1,-77.7,40.7",
+    "WI": "-92.9,42.4,-86.8,47.1",
+    "WY": "-111.1,40.9,-104.0,45.1",
+    "DC": "-77.2,38.8,-76.9,39.0",
+}
 
 # NOAA MapServer layer IDs for SPC categorical and hazard probability products.
 SPC_GIS_LAYERS = {
@@ -90,12 +151,6 @@ SPC_GIS_LAYERS = {
         "wind_intensity": 14,
         "wind": 15,
     },
-}
-
-CITY_POINTS = {
-    "OKC": (35.4676, -97.5164),
-    "Tulsa": (36.1540, -95.9928),
-    "Lawton": (34.6036, -98.3959),
 }
 
 IMPORTANT_EVENTS = {
@@ -165,6 +220,112 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler(LOG_FILE)],
 )
 log = logging.getLogger("ok-weather-bot")
+
+
+# Target and delivery configuration helpers.
+def split_webhook_urls(primary, extra):
+    """Build a de-duplicated webhook list without logging or exposing secrets."""
+    urls = []
+    for raw in (primary, extra):
+        for value in re.split(r"[\s,]+", raw or ""):
+            value = value.strip()
+            if value and value not in urls:
+                urls.append(value)
+    return urls
+
+
+def parse_target_points(raw):
+    """Parse semicolon-separated Name:lat,lon forecast/radius points."""
+    points = {}
+    if raw and raw.strip():
+        source = raw.strip()
+    elif TARGET_STATES == ["OK"] and target_label().lower() == "oklahoma":
+        source = TARGET_POINTS_DEFAULT
+    else:
+        source = ""
+    for item in source.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        name, separator, coords = item.partition(":")
+        if not separator:
+            log.warning("Ignoring TARGET_POINTS entry without name:lat,lon format")
+            continue
+        try:
+            lat_text, lon_text = coords.split(",", 1)
+            points[name.strip()] = (float(lat_text.strip()), float(lon_text.strip()))
+        except ValueError:
+            log.warning("Ignoring TARGET_POINTS entry with invalid coordinates: %s", name.strip())
+    return points
+
+
+def target_label():
+    return TARGET_NAME or ", ".join(TARGET_STATES) or "configured area"
+
+
+def target_search_terms():
+    terms = [target_label()]
+    terms.extend(TARGET_STATES)
+    terms.extend(target_points().keys())
+    if "OK" in TARGET_STATES or target_label().lower() == "oklahoma":
+        terms.extend(["Oklahoma", "OK", "OKC", "Oklahoma City", "Tulsa"])
+    return [term for term in terms if term]
+
+
+def target_location_pattern():
+    return "|".join(re.escape(term) for term in target_search_terms())
+
+
+def target_words_regex():
+    pattern = target_location_pattern()
+    return re.compile(rf"\b(?:{pattern})\b", re.I) if pattern else OKLAHOMA_WORDS
+
+
+def target_points():
+    return parse_target_points(TARGET_POINTS_RAW)
+
+
+def target_bbox():
+    if TARGET_BBOX:
+        return TARGET_BBOX
+    if TARGET_RADIUS_MILES > 0:
+        points = target_points()
+        if points:
+            lats = [point[0] for point in points.values()]
+            lons = [point[1] for point in points.values()]
+            degrees = TARGET_RADIUS_MILES / 69.0
+            return f"{min(lons) - degrees:.3f},{min(lats) - degrees:.3f},{max(lons) + degrees:.3f},{max(lats) + degrees:.3f}"
+    if len(TARGET_STATES) == 1 and TARGET_STATES[0] in STATE_BBOXES:
+        return STATE_BBOXES[TARGET_STATES[0]]
+    boxes = [STATE_BBOXES[state] for state in TARGET_STATES if state in STATE_BBOXES]
+    if boxes:
+        coords = [[float(part) for part in box.split(",")] for box in boxes]
+        return f"{min(box[0] for box in coords):.3f},{min(box[1] for box in coords):.3f},{max(box[2] for box in coords):.3f},{max(box[3] for box in coords):.3f}"
+    return OKLAHOMA_BBOX
+
+
+def miles_between(lat1, lon1, lat2, lon2):
+    """Return an approximate great-circle distance in miles."""
+    from math import asin, cos, radians, sin, sqrt
+
+    radius_miles = 3958.8
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * radius_miles * asin(sqrt(a))
+
+
+def feature_in_target_radius(feature):
+    if TARGET_RADIUS_MILES <= 0:
+        return True
+    center = geometry_center(feature.get("geometry"))
+    if not center:
+        return False
+    points = target_points()
+    if not points:
+        return True
+    lat, lon = center
+    return any(miles_between(lat, lon, point_lat, point_lon) <= TARGET_RADIUS_MILES for point_lat, point_lon in points.values())
 
 
 # Persistent state helpers.
@@ -275,6 +436,25 @@ def post_discord(webhook_url, content=None, embeds=None):
     return False
 
 
+def post_discord_many(webhook_urls, content=None, embeds=None):
+    urls = webhook_urls if isinstance(webhook_urls, list) else [webhook_urls]
+    if not urls:
+        return post_discord("", content=content, embeds=embeds)
+    sent_any = False
+    for url in urls:
+        if post_discord(url, content=content, embeds=embeds):
+            sent_any = True
+    return sent_any
+
+
+def brief_webhook_urls():
+    return split_webhook_urls(BRIEF_WEBHOOK_URL, BRIEF_WEBHOOK_URLS)
+
+
+def alert_webhook_urls():
+    return split_webhook_urls(ALERT_WEBHOOK_URL, ALERT_WEBHOOK_URLS)
+
+
 # Text cleanup and small formatting helpers.
 def clean(text, max_len=900):
     if not text:
@@ -325,15 +505,38 @@ def brief_alert_line(props):
     event = props.get("event", "Alert")
     if event in {"Severe Thunderstorm Watch", "Tornado Watch"}:
         count = county_count(props.get("areaDesc", ""))
-        county_text = f"{count} Oklahoma counties" if count else "Oklahoma counties"
+        area_kind = f"{target_label()} counties" if TARGET_STATES == ["OK"] and target_label().lower() == "oklahoma" else f"{target_label()} areas"
+        county_text = f"{count} {area_kind}" if count else area_kind
         return f"**{event}{watch_number(props)}**: {county_text}, expires {format_local_time(props.get('expires'))}"
     return f"**{event}**: {clean(props.get('areaDesc', ''), 120)}"
 
 
 # NWS alert fetching, filtering, and embed formatting.
-def fetch_active_ok_alerts():
-    data = get_json(NWS_ALERTS_OK)
+def fetch_alert_features(params):
+    data = get_json_with_params(NWS_ALERTS_ACTIVE, params)
     return data.get("features", [])
+
+
+def fetch_active_target_alerts():
+    features = []
+    seen = set()
+    states = TARGET_STATES or ["OK"]
+
+    for state in states:
+        for feature in fetch_alert_features({"area": state}):
+            key = alert_key(feature)
+            if key not in seen and feature_in_target_radius(feature):
+                features.append(feature)
+                seen.add(key)
+
+    if TARGET_RADIUS_MILES > 0:
+        for lat, lon in target_points().values():
+            for feature in fetch_alert_features({"point": f"{lat},{lon}"}):
+                key = alert_key(feature)
+                if key not in seen:
+                    features.append(feature)
+                    seen.add(key)
+    return features
 
 
 def alert_key(feature):
@@ -408,7 +611,7 @@ def alert_importance_text(event):
 
 def notification_area(props):
     area = compact_area_desc((props or {}).get("areaDesc", ""), max_items=2)
-    return area or "Oklahoma"
+    return area or target_label()
 
 
 def alert_post_content(event, props=None):
@@ -582,7 +785,7 @@ def build_alert_embed(props, *, title=None, description=None, geometry=None):
     }
     if importance:
         add_embed_field(embed, "🚨 Importance", importance, False)
-    add_embed_field(embed, "📍 Affected area", area or "Oklahoma", False)
+    add_embed_field(embed, "📍 Affected area", area or target_label(), False)
     add_embed_field(embed, "🚨 Severity", alert_severity_label(event, severity, urgency, certainty), True)
     add_embed_field(embed, "⏱️ Timing", alert_footer(props), True)
     if instr:
@@ -612,7 +815,7 @@ def strongest_alert_color(alerts):
 
 
 def send_new_nws_alerts(state):
-    alerts = fetch_active_ok_alerts()
+    alerts = fetch_active_target_alerts()
     seen = set(state.get("seen_alerts", []))
     new_keys = []
     sent = 0
@@ -625,7 +828,7 @@ def send_new_nws_alerts(state):
             continue
         event = props.get("event", "Weather Alert")
         embed = build_alert_embed(props, geometry=feature.get("geometry"))
-        if post_discord(ALERT_WEBHOOK_URL, content=alert_post_content(event, props), embeds=[embed]):
+        if post_discord_many(alert_webhook_urls(), content=alert_post_content(event, props), embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -673,9 +876,10 @@ def spc_oklahoma_search_text(entry, summary):
 
 def spc_explicit_location(entry):
     text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
+    target_terms = target_location_pattern()
     location_patterns = [
-        r"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
-        r"\b((?:central|northern|southern|eastern|western|northeastern|northwestern|southeastern|southwestern)[^.;\n]*(?:oklahoma|\bok\b)[^.;\n]*)",
+        rf"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:{target_terms})[^.;\n]*)",
+        rf"\b((?:central|northern|southern|eastern|western|northeastern|northwestern|southeastern|southwestern)[^.;\n]*(?:{target_terms})[^.;\n]*)",
     ]
     for pattern in location_patterns:
         match = re.search(pattern, text, re.I)
@@ -697,7 +901,7 @@ def should_post_spc_item(entry, summary):
     location = spc_explicit_location(entry)
     if spc_status_report(entry) and not location:
         return False
-    return bool(location or OKLAHOMA_WORDS.search(combined))
+    return bool(location or target_words_regex().search(combined))
 
 
 def spc_item_color(title):
@@ -715,7 +919,7 @@ def spc_item_color(title):
 
 def build_spc_item_embed(entry):
     title = clean(entry.get("title", "SPC product"), 250)
-    summary = concise_product_summary(entry.get("summary", ""), fallback="SPC product mentioning Oklahoma.")
+    summary = concise_product_summary(entry.get("summary", ""), fallback=f"SPC product mentioning {target_label()}.")
     link = entry.get("link", "")
     embed = {
         "title": f"🌩️ {title}",
@@ -745,8 +949,8 @@ def spc_item_location(entry):
     if location:
         return location
     text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
-    if OKLAHOMA_WORDS.search(text):
-        return "Oklahoma/nearby region"
+    if target_words_regex().search(text):
+        return f"{target_label()}/nearby region"
     return ""
 
 
@@ -789,8 +993,8 @@ def send_new_spc_items(state):
         keys = spc_entry_keys(entry)
         if seen.intersection(keys):
             continue
-        if post_discord(
-            ALERT_WEBHOOK_URL,
+        if post_discord_many(
+            alert_webhook_urls(),
             content=spc_item_content(entry),
             embeds=[build_spc_item_embed(entry)],
         ):
@@ -863,14 +1067,14 @@ def fetch_spc_outlook(url, label):
         return {"day": label, "url": url, "headline": "", "risk": "Unavailable", "summary": "", "risk_lines": []}
 
 
-# SPC GIS probability and categorical risk summaries for Oklahoma.
+# SPC GIS probability and categorical risk summaries for the configured target.
 def fetch_spc_gis_layer(layer_id):
     params = {
         "f": "json",
         "where": "1=1",
         "outFields": "dn,label,label2,valid,issue,expire",
         "returnGeometry": "false",
-        "geometry": OKLAHOMA_BBOX,
+        "geometry": target_bbox(),
         "geometryType": "esriGeometryEnvelope",
         "inSR": "4326",
         "spatialRel": "esriSpatialRelIntersects",
@@ -1112,16 +1316,16 @@ def city_forecast_summary(name, lat, lon):
 def bottom_line(day1, active_alerts):
     risk = day1.get("risk", "Unavailable")
     if active_alerts:
-        return f"Active notable alerts are in effect. Highest Oklahoma Day 1 SPC signal found: {risk}."
+        return f"Active notable alerts are in effect. Highest {target_label()} Day 1 SPC signal found: {risk}."
     if risk in {"Enhanced", "Moderate", "High"}:
-        return f"Heads up: SPC Day 1 shows {risk} risk signal intersecting Oklahoma. Review timing and threats before any travel."
+        return f"Heads up: SPC Day 1 shows {risk} risk signal intersecting {target_label()}. Review timing and threats before any travel."
     if risk in {"Slight", "Marginal"}:
-        return f"Some severe potential is showing in the SPC Day 1 outlook for Oklahoma. Highest signal found: {risk}."
+        return f"Some severe potential is showing in the SPC Day 1 outlook for {target_label()}. Highest signal found: {risk}."
     if risk == "General Thunder":
         return "Thunderstorms may be possible, but no organized severe signal was found by the bot."
     if risk == "Unavailable":
         return "SPC outlook fetch failed, so use SPC/NWS directly for confidence."
-    return "No active notable Oklahoma alerts and no meaningful severe signal found by the bot."
+    return f"No active notable {target_label()} alerts and no meaningful severe signal found by the bot."
 
 
 def risk_color(risk):
@@ -1165,12 +1369,12 @@ def city_snapshots_embed(forecasts):
 def spc_embed(day, map_url):
     embed = {
         "title": f"🗺️ SPC {day.get('day', 'Outlook')}",
-        "description": f"Highest Oklahoma signal: **{day.get('risk', 'Unavailable')}**",
+        "description": f"Highest {target_label()} signal: **{day.get('risk', 'Unavailable')}**",
         "color": risk_color(day.get("risk", "Unavailable")),
         "url": day.get("url"),
         "fields": [],
     }
-    add_embed_field(embed, "📊 Oklahoma probabilities", format_probabilities(day), False)
+    add_embed_field(embed, f"📊 {target_label()} probabilities", format_probabilities(day), False)
     if day.get("summary"):
         add_embed_field(embed, "🌎 SPC national context", day["summary"], False)
     if should_show_text_risk_lines(day):
@@ -1182,7 +1386,7 @@ def spc_embed(day, map_url):
 
 
 def build_brief_data():
-    alerts = fetch_active_ok_alerts()
+    alerts = fetch_active_target_alerts()
     important = []
     for f in alerts:
         p = f.get("properties", {})
@@ -1191,7 +1395,7 @@ def build_brief_data():
 
     day1 = merged_spc_day(fetch_spc_outlook(SPC_DAY1_TXT, "Day 1"), fetch_spc_gis_summary("Day 1"))
     day2 = merged_spc_day(fetch_spc_outlook(SPC_DAY2_TXT, "Day 2"), fetch_spc_gis_summary("Day 2"))
-    forecasts = [city_forecast_summary(name, lat, lon) for name, (lat, lon) in CITY_POINTS.items()]
+    forecasts = [city_forecast_summary(name, lat, lon) for name, (lat, lon) in target_points().items()]
     forecaster_notes = fetch_forecaster_notes()
     now = datetime.now(TZ).strftime("%A, %B %-d at %-I:%M %p")
     return {
@@ -1205,7 +1409,8 @@ def build_brief_data():
     }
 
 
-def build_brief_embeds(data=None, title="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
+def build_brief_embeds(data=None, title=None, bottom_line_label="Bottom line"):
+    title = title or f"🌦️ {target_label()} Weather Brief"
     data = data or build_brief_data()
     day1 = data["day1"]
     day2 = data["day2"]
@@ -1256,7 +1461,8 @@ def build_brief_embeds(data=None, title="🌦️ Oklahoma Weather Brief", bottom
     return embeds[:10]
 
 
-def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
+def build_brief_message(data=None, title=None, bottom_line_label="Bottom line"):
+    title = title or f"🌦️ {target_label()} Weather Brief"
     data = data or build_brief_data()
     important = data["important"]
     day1 = data["day1"]
@@ -1271,8 +1477,8 @@ def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", botto
     lines.append("")
 
     lines.append("**🗺️ SPC Day 1:**")
-    lines.append(f"• Highest Oklahoma signal found: **{day1.get('risk', 'Unavailable')}**")
-    lines.append(f"• Oklahoma probabilities: {format_probabilities(day1)}")
+    lines.append(f"• Highest {target_label()} signal found: **{day1.get('risk', 'Unavailable')}**")
+    lines.append(f"• {target_label()} probabilities: {format_probabilities(day1)}")
     if day1.get("summary"):
         lines.append(f"• Summary: {day1['summary']}")
     if should_show_text_risk_lines(day1):
@@ -1282,8 +1488,8 @@ def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", botto
     lines.append("")
 
     lines.append("**🗺️ SPC Day 2:**")
-    lines.append(f"• Highest Oklahoma signal found: **{day2.get('risk', 'Unavailable')}**")
-    lines.append(f"• Oklahoma probabilities: {format_probabilities(day2)}")
+    lines.append(f"• Highest {target_label()} signal found: **{day2.get('risk', 'Unavailable')}**")
+    lines.append(f"• {target_label()} probabilities: {format_probabilities(day2)}")
     if day2.get("summary"):
         lines.append(f"• Summary: {day2['summary']}")
     if should_show_text_risk_lines(day2):
@@ -1297,7 +1503,7 @@ def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", botto
         for p in important[:5]:
             lines.append(f"• {brief_alert_line(p)}")
     else:
-        lines.append("**✅ Active notable alerts:** None found from NWS Oklahoma statewide alerts.")
+        lines.append(f"**✅ Active notable alerts:** None found from NWS for {target_label()}.")
 
     if timing:
         lines.append("")
@@ -1323,10 +1529,12 @@ def build_brief_message(data=None, title="🌦️ Oklahoma Weather Brief", botto
     return message
 
 
-def post_brief(title="🌦️ Oklahoma Weather Brief", content_prefix="🌦️ Oklahoma Weather Brief", bottom_line_label="Bottom line"):
+def post_brief(title=None, content_prefix=None, bottom_line_label="Bottom line"):
+    title = title or f"🌦️ {target_label()} Weather Brief"
+    content_prefix = content_prefix or f"🌦️ {target_label()} Weather Brief"
     data = build_brief_data()
     content = f"**{content_prefix}** - {data['now']}"
-    return post_discord(BRIEF_WEBHOOK_URL, content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
+    return post_discord_many(brief_webhook_urls(), content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
 
 
 # Manual triggers, scheduled briefings, startup messages, and main loop.
@@ -1360,10 +1568,10 @@ def maybe_send_alert_test():
     now = datetime.now(TZ)
     test_props = {
         "event": "Severe Thunderstorm Warning",
-        "headline": "Test alert card for Oklahoma weather bot",
+        "headline": f"Test alert card for {target_label()} weather bot",
         "description": "This test uses the same card layout as real NWS alerts. No radar image is attached, so Discord cannot show a stale cached radar loop.",
         "instruction": "No action needed. This is only a webhook and formatting test.",
-        "areaDesc": "Oklahoma test area",
+        "areaDesc": f"{target_label()} test area",
         "severity": "Severe",
         "urgency": "Immediate",
         "certainty": "Observed",
@@ -1372,10 +1580,10 @@ def maybe_send_alert_test():
         "expires": (now + timedelta(minutes=30)).isoformat(),
         "@id": "https://alerts.weather.gov",
     }
-    ok = post_discord(
-        ALERT_WEBHOOK_URL,
+    ok = post_discord_many(
+        alert_webhook_urls(),
         content="**Alert webhook test**",
-        embeds=[build_alert_embed(test_props, title="Oklahoma Weather Bot Alert Test")],
+        embeds=[build_alert_embed(test_props, title=f"{target_label()} Weather Bot Alert Test")],
     )
     if not ok:
         log.warning("Alert webhook test was not sent; leaving trigger file for retry")
@@ -1411,8 +1619,8 @@ def maybe_send_afternoon_severe_brief(state):
         and state.get("last_afternoon_severe_brief_date") != today
     ):
         if post_brief(
-            title="⛈️ Oklahoma Rest-of-Day Severe Weather Brief",
-            content_prefix="⛈️ Oklahoma Rest-of-Day Severe Weather Brief",
+            title=f"⛈️ {target_label()} Rest-of-Day Severe Weather Brief",
+            content_prefix=f"⛈️ {target_label()} Rest-of-Day Severe Weather Brief",
             bottom_line_label="Rest-of-day severe weather",
         ):
             state["last_afternoon_severe_brief_date"] = today
@@ -1428,13 +1636,13 @@ def send_startup_message_once(state):
     if AFTERNOON_SEVERE_BRIEF_ENABLED:
         afternoon_brief_status = f"{AFTERNOON_SEVERE_BRIEF_HOUR:02d}:{AFTERNOON_SEVERE_BRIEF_MINUTE:02d} {TZ.key}"
     msg = (
-        "âœ… **Oklahoma Weather Bot Started**\n"
+        f"âœ… **{target_label()} Weather Bot Started**\n"
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
         "Version: v2.4.3"
     )
-    if post_discord(BRIEF_WEBHOOK_URL, content=msg):
+    if post_discord_many(brief_webhook_urls(), content=msg):
         state["startup_sent"] = True
         log.info("Startup message sent")
 
@@ -1442,14 +1650,14 @@ def send_startup_message_once(state):
 def log_config_summary():
     log.info(
         "Config: brief_webhook=%s alert_webhook=%s severe_thunderstorm_warning_mode=%s",
-        "configured" if BRIEF_WEBHOOK_URL else "missing",
-        "configured" if ALERT_WEBHOOK_URL else "missing",
+        len(brief_webhook_urls()),
+        len(alert_webhook_urls()),
         SEVERE_THUNDERSTORM_WARNING_MODE,
     )
 
 
 def main():
-    log.info("Starting Oklahoma Weather Discord Bot v2.3")
+    log.info("Starting Weather Discord Bot v2.5")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)
