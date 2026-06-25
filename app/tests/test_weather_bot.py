@@ -419,6 +419,80 @@ class SpcParsingTests(unittest.TestCase):
             weather_bot.TARGET_RADIUS_MILES = old_radius
             weather_bot.TARGET_BBOX = old_bbox
 
+    def test_default_oklahoma_profile_uses_oklahoma_radar_fallback(self):
+        old_name = weather_bot.TARGET_NAME
+        old_states = weather_bot.TARGET_STATES
+        old_radar = weather_bot.RADAR_STATIONS_RAW
+        weather_bot.TARGET_NAME = "Oklahoma"
+        weather_bot.TARGET_STATES = ["OK"]
+        weather_bot.RADAR_STATIONS_RAW = ""
+        try:
+            self.assertEqual(weather_bot.configured_radar_stations(), ["KTLX", "KINX", "KFDR"])
+        finally:
+            weather_bot.TARGET_NAME = old_name
+            weather_bot.TARGET_STATES = old_states
+            weather_bot.RADAR_STATIONS_RAW = old_radar
+
+    def test_default_oklahoma_profile_uses_oklahoma_afd_fallback(self):
+        old_name = weather_bot.TARGET_NAME
+        old_states = weather_bot.TARGET_STATES
+        old_afd = weather_bot.AFD_OFFICES_RAW
+        weather_bot.TARGET_NAME = "Oklahoma"
+        weather_bot.TARGET_STATES = ["OK"]
+        weather_bot.AFD_OFFICES_RAW = ""
+        try:
+            self.assertEqual(weather_bot.configured_afd_offices(), ["OUN", "TSA"])
+        finally:
+            weather_bot.TARGET_NAME = old_name
+            weather_bot.TARGET_STATES = old_states
+            weather_bot.AFD_OFFICES_RAW = old_afd
+
+    def test_non_oklahoma_profile_derives_radar_from_target_points(self):
+        old_name = weather_bot.TARGET_NAME
+        old_states = weather_bot.TARGET_STATES
+        old_points = weather_bot.TARGET_POINTS_RAW
+        old_radar = weather_bot.RADAR_STATIONS_RAW
+        old_cache = weather_bot._RADAR_STATIONS_CACHE
+        old_point_metadata = weather_bot.point_metadata
+        weather_bot.TARGET_NAME = "Wichita Metro"
+        weather_bot.TARGET_STATES = ["KS"]
+        weather_bot.TARGET_POINTS_RAW = "Wichita:37.6872,-97.3301"
+        weather_bot.RADAR_STATIONS_RAW = ""
+        weather_bot._RADAR_STATIONS_CACHE = None
+        weather_bot.point_metadata = lambda lat, lon: {"properties": {"radarStation": "KICT"}}
+        try:
+            self.assertEqual(weather_bot.configured_radar_stations(), ["KICT"])
+        finally:
+            weather_bot.TARGET_NAME = old_name
+            weather_bot.TARGET_STATES = old_states
+            weather_bot.TARGET_POINTS_RAW = old_points
+            weather_bot.RADAR_STATIONS_RAW = old_radar
+            weather_bot._RADAR_STATIONS_CACHE = old_cache
+            weather_bot.point_metadata = old_point_metadata
+
+    def test_non_oklahoma_profile_derives_afd_from_target_points(self):
+        old_name = weather_bot.TARGET_NAME
+        old_states = weather_bot.TARGET_STATES
+        old_points = weather_bot.TARGET_POINTS_RAW
+        old_afd = weather_bot.AFD_OFFICES_RAW
+        old_cache = weather_bot._AFD_OFFICES_CACHE
+        old_point_metadata = weather_bot.point_metadata
+        weather_bot.TARGET_NAME = "Wichita Metro"
+        weather_bot.TARGET_STATES = ["KS"]
+        weather_bot.TARGET_POINTS_RAW = "Wichita:37.6872,-97.3301"
+        weather_bot.AFD_OFFICES_RAW = ""
+        weather_bot._AFD_OFFICES_CACHE = None
+        weather_bot.point_metadata = lambda lat, lon: {"properties": {"cwa": "ICT"}}
+        try:
+            self.assertEqual(weather_bot.configured_afd_offices(), ["ICT"])
+        finally:
+            weather_bot.TARGET_NAME = old_name
+            weather_bot.TARGET_STATES = old_states
+            weather_bot.TARGET_POINTS_RAW = old_points
+            weather_bot.AFD_OFFICES_RAW = old_afd
+            weather_bot._AFD_OFFICES_CACHE = old_cache
+            weather_bot.point_metadata = old_point_metadata
+
     def test_build_brief_embeds_includes_forecaster_notes(self):
         data = {
             "alerts": [],

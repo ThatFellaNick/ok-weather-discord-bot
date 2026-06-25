@@ -50,20 +50,24 @@ SEND_STARTUP_MESSAGE = os.getenv("SEND_STARTUP_MESSAGE", "true").lower() == "tru
 TEST_BRIEF_ON_START = os.getenv("TEST_BRIEF_ON_START", "false").lower() == "true"
 TRIGGER_BRIEF_FILE = os.getenv("TRIGGER_BRIEF_FILE", "/data/trigger_brief")
 TRIGGER_ALERT_TEST_FILE = os.getenv("TRIGGER_ALERT_TEST_FILE", "/data/trigger_alert_test")
-AFD_OFFICES = [office.strip().upper() for office in os.getenv("AFD_OFFICES", "OUN,TSA").split(",") if office.strip()]
+AFD_OFFICES_RAW = os.getenv("AFD_OFFICES", "")
 INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
-RADAR_STATIONS = [station.strip().upper() for station in os.getenv("RADAR_STATIONS", "KTLX,KINX,KFDR").split(",") if station.strip()]
 TARGET_NAME = os.getenv("TARGET_NAME", "Oklahoma")
 TARGET_STATES = [state.strip().upper() for state in os.getenv("TARGET_STATES", os.getenv("TARGET_STATE", "OK")).split(",") if state.strip()]
 TARGET_POINTS_RAW = os.getenv("TARGET_POINTS", "")
 TARGET_RADIUS_MILES = float(os.getenv("TARGET_RADIUS_MILES", "0") or "0")
 TARGET_BBOX = os.getenv("TARGET_BBOX", "")
+RADAR_STATIONS_RAW = os.getenv("RADAR_STATIONS", "")
 
 RADAR_STATION_POINTS = {
     "KTLX": (35.333, -97.277),
     "KINX": (36.175, -95.564),
     "KFDR": (34.362, -98.976),
 }
+OKLAHOMA_RADAR_STATIONS = ["KTLX", "KINX", "KFDR"]
+_RADAR_STATIONS_CACHE = None
+OKLAHOMA_AFD_OFFICES = ["OUN", "TSA"]
+_AFD_OFFICES_CACHE = None
 
 # External data sources used by the bot.
 NWS_ALERTS_ACTIVE = "https://api.weather.gov/alerts/active"
@@ -283,6 +287,72 @@ def target_words_regex():
 
 def target_points():
     return parse_target_points(TARGET_POINTS_RAW)
+
+
+def explicit_afd_offices():
+    return [office.strip().upper() for office in AFD_OFFICES_RAW.split(",") if office.strip()]
+
+
+def explicit_radar_stations():
+    return [station.strip().upper() for station in RADAR_STATIONS_RAW.split(",") if station.strip()]
+
+
+def default_oklahoma_profile():
+    return TARGET_STATES == ["OK"] and target_label().lower() == "oklahoma"
+
+
+def derived_afd_offices():
+    global _AFD_OFFICES_CACHE
+    if _AFD_OFFICES_CACHE is not None:
+        return _AFD_OFFICES_CACHE
+    offices = []
+    for lat, lon in target_points().values():
+        try:
+            office = point_metadata(lat, lon).get("properties", {}).get("cwa", "")
+        except Exception as e:
+            log.warning("AFD office lookup failed for %.4f,%.4f: %s", lat, lon, e)
+            office = ""
+        office = str(office or "").strip().upper()
+        if office and office not in offices:
+            offices.append(office)
+    _AFD_OFFICES_CACHE = offices
+    return offices
+
+
+def configured_afd_offices():
+    explicit = explicit_afd_offices()
+    if explicit:
+        return explicit
+    if default_oklahoma_profile():
+        return OKLAHOMA_AFD_OFFICES
+    return derived_afd_offices()
+
+
+def derived_radar_stations():
+    global _RADAR_STATIONS_CACHE
+    if _RADAR_STATIONS_CACHE is not None:
+        return _RADAR_STATIONS_CACHE
+    stations = []
+    for lat, lon in target_points().values():
+        try:
+            station = point_metadata(lat, lon).get("properties", {}).get("radarStation", "")
+        except Exception as e:
+            log.warning("Radar station lookup failed for %.4f,%.4f: %s", lat, lon, e)
+            station = ""
+        station = str(station or "").strip().upper()
+        if station and station not in stations:
+            stations.append(station)
+    _RADAR_STATIONS_CACHE = stations
+    return stations
+
+
+def configured_radar_stations():
+    explicit = explicit_radar_stations()
+    if explicit:
+        return explicit
+    if default_oklahoma_profile():
+        return OKLAHOMA_RADAR_STATIONS
+    return derived_radar_stations()
 
 
 def target_bbox():
@@ -738,18 +808,20 @@ def geometry_center(geometry):
 
 
 def nearest_radar_station(geometry=None):
-    if not RADAR_STATIONS:
+    stations = configured_radar_stations()
+    if not stations:
         return ""
     center = geometry_center(geometry)
-    candidates = [station for station in RADAR_STATIONS if station in RADAR_STATION_POINTS]
+    candidates = [station for station in stations if station in RADAR_STATION_POINTS]
     if not center or not candidates:
-        return RADAR_STATIONS[0]
+        return stations[0]
     lat, lon = center
     return min(candidates, key=lambda station: (RADAR_STATION_POINTS[station][0] - lat) ** 2 + (RADAR_STATION_POINTS[station][1] - lon) ** 2)
 
 
 def radar_image_url(station=None):
-    station = station or (RADAR_STATIONS[0] if RADAR_STATIONS else "")
+    stations = configured_radar_stations()
+    station = station or (stations[0] if stations else "")
     if not station:
         return ""
     cache_key = datetime.now(TZ).strftime("%Y%m%d%H%M")
@@ -866,7 +938,7 @@ def spc_entry_keys(entry):
     return keys
 
 
-def spc_oklahoma_search_text(entry, summary):
+def spc_target_search_text(entry, summary):
     text = f"{entry.get('title', '')} {summary}"
     text = re.sub(r"\bNWS Storm Prediction Center\s+Norman\s+(?:OK|Oklahoma)\b", " ", text, flags=re.I)
     text = re.sub(r"\bStorm Prediction Center\s+Norman\s+(?:OK|Oklahoma)\b", " ", text, flags=re.I)
@@ -875,7 +947,7 @@ def spc_oklahoma_search_text(entry, summary):
 
 
 def spc_explicit_location(entry):
-    text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
+    text = spc_target_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
     target_terms = target_location_pattern()
     location_patterns = [
         rf"\b(?:across|over|near|for portions of|from|in)\s+([^.;\n]*(?:{target_terms})[^.;\n]*)",
@@ -895,7 +967,7 @@ def spc_status_report(entry):
 
 
 def should_post_spc_item(entry, summary):
-    combined = spc_oklahoma_search_text(entry, summary)
+    combined = spc_target_search_text(entry, summary)
     if not SPC_IMPORTANT.search(combined):
         return False
     location = spc_explicit_location(entry)
@@ -948,7 +1020,7 @@ def spc_item_location(entry):
     location = spc_explicit_location(entry)
     if location:
         return location
-    text = spc_oklahoma_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
+    text = spc_target_search_text(entry, clean_html(entry.get("summary", "") or entry.get("description", ""), 1800))
     if target_words_regex().search(text):
         return f"{target_label()}/nearby region"
     return ""
@@ -1276,7 +1348,7 @@ def expected_timing(data):
 
 def fetch_forecaster_notes():
     notes = []
-    for office in AFD_OFFICES[:4]:
+    for office in configured_afd_offices()[:4]:
         try:
             product = fetch_latest_product("AFD", office)
             note = parse_afd_notes(product.get("productText", ""))
@@ -1287,8 +1359,12 @@ def fetch_forecaster_notes():
     return notes
 
 
+def point_metadata(lat, lon):
+    return get_json(f"https://api.weather.gov/points/{lat},{lon}")
+
+
 def point_forecast_url(lat, lon):
-    points = get_json(f"https://api.weather.gov/points/{lat},{lon}")
+    points = point_metadata(lat, lon)
     return points.get("properties", {}).get("forecast")
 
 
@@ -1443,10 +1519,11 @@ def build_brief_embeds(data=None, title=None, bottom_line_label="Bottom line"):
         embeds.append(notes_embed)
 
     if INCLUDE_BRIEF_IMAGES and important:
-        radar = radar_image_url()
+        station = configured_radar_stations()[0] if configured_radar_stations() else ""
+        radar = radar_image_url(station)
         if radar:
             embeds.append({
-                "title": f"📡 {RADAR_STATIONS[0]} Radar",
+                "title": f"📡 {station} Radar",
                 "description": "Active notable alerts are in effect.",
                 "color": strongest_alert_color(alert_props),
                 "image": {"url": radar},

@@ -1,5 +1,6 @@
 services:
   ok-weather-bot:
+    image: ${BOT_IMAGE:-thatfellanick/ok-weather-discord-bot:latest}
     build: ./app
     container_name: ok-weather-bot
     restart: unless-stopped

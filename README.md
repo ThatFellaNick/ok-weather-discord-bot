@@ -19,11 +19,14 @@ Never commit `.env`, Discord webhook URLs, state files, runtime data, or logs.
 
 ## Quick Start on Any Docker Host
 
+Use the published Docker image when you just want to run the bot:
+
 ```bash
-git clone https://github.com/YOUR_GITHUB_USER/ok-weather-discord-bot.git
+mkdir -p ok-weather-discord-bot/data
 cd ok-weather-discord-bot
+wget https://raw.githubusercontent.com/ThatFellaNick/ok-weather-discord-bot/main/docker-compose.yml
+wget https://raw.githubusercontent.com/ThatFellaNick/ok-weather-discord-bot/main/config.example.env
 cp config.example.env .env
-mkdir -p data
 ```
 
 Edit `.env`, at minimum:
@@ -38,7 +41,8 @@ Edit `.env`, at minimum:
 Start it:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 View logs:
@@ -55,16 +59,35 @@ docker compose down
 
 ## Updating After a Release
 
-If you cloned the repo, keep your `.env` and `data/` folder in place and pull the latest code:
+If you run the published Docker image, keep your `.env` and `data/` folder in place and pull the new image:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+If you cloned the repo because you want local source changes, keep your `.env` and `data/` folder in place and rebuild:
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-If you run from a downloaded ZIP instead of git, download the new release, copy your existing `.env` and `data/` folder into the new folder, then run:
+To pin a specific published version later, set `BOT_IMAGE` in `.env`, for example:
+
+```env
+BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.0
+```
+
+## Build Locally From Git
+
+Use this path if you want to edit the source or test unreleased changes:
 
 ```bash
+git clone https://github.com/ThatFellaNick/ok-weather-discord-bot.git
+cd ok-weather-discord-bot
+cp config.example.env .env
+mkdir -p data
 docker compose up -d --build
 ```
 
@@ -127,8 +150,31 @@ Typical Unraid start command:
 
 ```bash
 cd /mnt/user/appdata/ok-weather-discord-bot
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
+
+## Docker Hub Publishing
+
+This repo includes a GitHub Actions workflow that publishes the image to Docker Hub as:
+
+```text
+thatfellanick/ok-weather-discord-bot
+```
+
+Before the first publish, create that Docker Hub repository and add these GitHub repository secrets under `Settings` -> `Secrets and variables` -> `Actions`:
+
+- `DOCKERHUB_USERNAME`: your Docker Hub username
+- `DOCKERHUB_TOKEN`: a Docker Hub access token with read/write access
+
+The workflow publishes multi-platform images for `linux/amd64` and `linux/arm64`.
+
+Tags:
+
+- `latest` on pushes to `main`
+- `main` on pushes to `main`
+- version tags such as `v2.5.0` when you push a matching git tag
+- `sha-...` tags for exact commit builds
 
 ## Environment Variables
 
@@ -161,10 +207,11 @@ All supported environment variables are shown in `config.example.env`.
 | `TEST_BRIEF_ON_START` | Send a brief immediately at container start when enabled. | `false` |
 | `TRIGGER_BRIEF_FILE` | File path watched for manual brief requests. | `/data/trigger_brief` |
 | `TRIGGER_ALERT_TEST_FILE` | File path watched for alert webhook test posts. | `/data/trigger_alert_test` |
-| `AFD_OFFICES` | Comma-separated NWS offices used for Forecaster Notes. | `OUN,TSA` |
+| `AFD_OFFICES` | Optional comma-separated NWS offices used for Forecaster Notes. Leave blank to auto-detect from `TARGET_POINTS`; the default Oklahoma profile falls back to `OUN,TSA`. | auto |
 | `INCLUDE_BRIEF_IMAGES` | Include SPC outlook map images, SPC RSS item images, and radar loop embeds. | `true` |
-| `RADAR_STATIONS` | Comma-separated radar IDs. First station is shown when active notable alerts exist. | `KTLX,KINX,KFDR` |
+| `RADAR_STATIONS` | Optional comma-separated radar IDs. Leave blank to auto-detect from `TARGET_POINTS`; the default Oklahoma profile falls back to `KTLX,KINX,KFDR`. | auto |
 | `DISCORD_MAX_RETRIES` | Maximum Discord webhook attempts per post. | `3` |
+| `BOT_IMAGE` | Docker image used by Compose. Pin this to a version tag if you do not want `latest`. | `thatfellanick/ok-weather-discord-bot:latest` |
 
 ## Manual Triggers
 
