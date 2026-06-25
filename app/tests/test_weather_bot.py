@@ -409,6 +409,8 @@ class SpcParsingTests(unittest.TestCase):
         old_states = weather_bot.TARGET_STATES
         old_radius = weather_bot.TARGET_RADIUS_MILES
         old_bbox = weather_bot.TARGET_BBOX
+        old_mode = weather_bot.TARGET_MODE_RAW
+        weather_bot.TARGET_MODE_RAW = "state"
         weather_bot.TARGET_STATES = ["KS", "MO"]
         weather_bot.TARGET_RADIUS_MILES = 0
         weather_bot.TARGET_BBOX = ""
@@ -418,6 +420,34 @@ class SpcParsingTests(unittest.TestCase):
             weather_bot.TARGET_STATES = old_states
             weather_bot.TARGET_RADIUS_MILES = old_radius
             weather_bot.TARGET_BBOX = old_bbox
+            weather_bot.TARGET_MODE_RAW = old_mode
+
+    def test_target_mode_uses_radius_when_legacy_radius_is_set(self):
+        old_mode = weather_bot.TARGET_MODE_RAW
+        old_radius = weather_bot.TARGET_RADIUS_MILES
+        weather_bot.TARGET_MODE_RAW = ""
+        weather_bot.TARGET_RADIUS_MILES = 50
+        try:
+            self.assertEqual(weather_bot.target_mode(), "radius")
+        finally:
+            weather_bot.TARGET_MODE_RAW = old_mode
+            weather_bot.TARGET_RADIUS_MILES = old_radius
+
+    def test_state_mode_ignores_radius_filter(self):
+        old_mode = weather_bot.TARGET_MODE_RAW
+        old_radius = weather_bot.TARGET_RADIUS_MILES
+        old_points = weather_bot.TARGET_POINTS_RAW
+        weather_bot.TARGET_MODE_RAW = "state"
+        weather_bot.TARGET_RADIUS_MILES = 50
+        weather_bot.TARGET_POINTS_RAW = "Wichita:37.6872,-97.3301"
+        feature = {"geometry": {"type": "Point", "coordinates": [-95.9928, 36.1540]}}
+        try:
+            self.assertTrue(weather_bot.feature_in_target_radius(feature))
+            self.assertEqual(weather_bot.target_mode(), "state")
+        finally:
+            weather_bot.TARGET_MODE_RAW = old_mode
+            weather_bot.TARGET_RADIUS_MILES = old_radius
+            weather_bot.TARGET_POINTS_RAW = old_points
 
     def test_default_oklahoma_profile_uses_oklahoma_radar_fallback(self):
         old_name = weather_bot.TARGET_NAME

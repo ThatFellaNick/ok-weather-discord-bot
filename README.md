@@ -35,8 +35,9 @@ Edit `.env`, at minimum:
 - `ALERT_WEBHOOK_URL`
 - `NWS_USER_AGENT`, including your contact email
 - `TARGET_NAME`
+- `TARGET_MODE`
 - `TARGET_STATES`
-- `TARGET_POINTS` if you want forecast points or radius mode
+- `TARGET_POINTS` if you want forecast points or use radius mode
 
 Start it:
 
@@ -97,6 +98,7 @@ Whole-state Oklahoma, the default:
 
 ```env
 TARGET_NAME=Oklahoma
+TARGET_MODE=state
 TARGET_STATES=OK
 TARGET_POINTS=OKC:35.4676,-97.5164;Tulsa:36.1540,-95.9928;Lawton:34.6036,-98.3959
 TARGET_RADIUS_MILES=0
@@ -106,6 +108,7 @@ Whole-state Kansas:
 
 ```env
 TARGET_NAME=Kansas
+TARGET_MODE=state
 TARGET_STATES=KS
 TARGET_POINTS=Wichita:37.6872,-97.3301;Topeka:39.0473,-95.6752
 TARGET_RADIUS_MILES=0
@@ -115,12 +118,13 @@ Fifty miles around one town or custom GPS point:
 
 ```env
 TARGET_NAME=Wichita Metro
+TARGET_MODE=radius
 TARGET_STATES=KS
 TARGET_POINTS=Wichita:37.6872,-97.3301
 TARGET_RADIUS_MILES=50
 ```
 
-For city/town setups, look up the town's latitude and longitude and put it in `TARGET_POINTS`. `TARGET_STATES` should include the state being monitored; use multiple states for border areas, such as `TARGET_STATES=KS,OK`.
+Use `TARGET_MODE=state` for one or more full states. Use `TARGET_MODE=radius` for a city/town/custom GPS setup. For radius setups, look up the latitude and longitude and put it in `TARGET_POINTS`; `TARGET_STATES` should include the state being monitored and any nearby border states the radius crosses, such as `TARGET_STATES=KS,OK`.
 
 ## Multiple Discord Channels
 
@@ -188,9 +192,10 @@ All supported environment variables are shown in `config.example.env`.
 | `ALERT_WEBHOOK_URLS` | Optional extra alert webhooks, separated by commas or spaces. | empty |
 | `NWS_USER_AGENT` | User-Agent sent to NWS/SPC requests. Include a contact email. | `ok-weather-discord-bot/2.4` |
 | `TARGET_NAME` | Human-readable area name used in Discord posts. | `Oklahoma` |
+| `TARGET_MODE` | `state` for full-state monitoring or `radius` for GPS/radius monitoring. | `state` |
 | `TARGET_STATES` | Comma-separated state abbreviations for NWS alert polling. | `OK` |
 | `TARGET_POINTS` | Semicolon-separated `Name:lat,lon` forecast/radius points. | Oklahoma points |
-| `TARGET_RADIUS_MILES` | `0` for whole-state mode, or a mile radius around `TARGET_POINTS`. | `0` |
+| `TARGET_RADIUS_MILES` | Mile radius around `TARGET_POINTS` when `TARGET_MODE=radius`. | `0` |
 | `TARGET_BBOX` | Optional SPC GIS envelope as `west,south,east,north`. | built in |
 | `TZ` | Timezone used for scheduling and displayed times. | `America/Chicago` |
 | `POLL_SECONDS` | Main polling loop interval in seconds. | `180` |

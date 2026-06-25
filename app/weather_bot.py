@@ -53,6 +53,7 @@ TRIGGER_ALERT_TEST_FILE = os.getenv("TRIGGER_ALERT_TEST_FILE", "/data/trigger_al
 AFD_OFFICES_RAW = os.getenv("AFD_OFFICES", "")
 INCLUDE_BRIEF_IMAGES = os.getenv("INCLUDE_BRIEF_IMAGES", "true").lower() == "true"
 TARGET_NAME = os.getenv("TARGET_NAME", "Oklahoma")
+TARGET_MODE_RAW = os.getenv("TARGET_MODE", "")
 TARGET_STATES = [state.strip().upper() for state in os.getenv("TARGET_STATES", os.getenv("TARGET_STATE", "OK")).split(",") if state.strip()]
 TARGET_POINTS_RAW = os.getenv("TARGET_POINTS", "")
 TARGET_RADIUS_MILES = float(os.getenv("TARGET_RADIUS_MILES", "0") or "0")
@@ -267,6 +268,20 @@ def target_label():
     return TARGET_NAME or ", ".join(TARGET_STATES) or "configured area"
 
 
+def target_mode():
+    """Choose state or radius behavior while preserving pre-mode configs."""
+    mode = (TARGET_MODE_RAW or "").strip().lower()
+    if mode in {"state", "states"}:
+        return "state"
+    if mode in {"radius", "point", "points"}:
+        return "radius"
+    return "radius" if TARGET_RADIUS_MILES > 0 else "state"
+
+
+def radius_target_enabled():
+    return target_mode() == "radius" and TARGET_RADIUS_MILES > 0
+
+
 def target_search_terms():
     terms = [target_label()]
     terms.extend(TARGET_STATES)
@@ -358,7 +373,7 @@ def configured_radar_stations():
 def target_bbox():
     if TARGET_BBOX:
         return TARGET_BBOX
-    if TARGET_RADIUS_MILES > 0:
+    if radius_target_enabled():
         points = target_points()
         if points:
             lats = [point[0] for point in points.values()]
@@ -386,7 +401,7 @@ def miles_between(lat1, lon1, lat2, lon2):
 
 
 def feature_in_target_radius(feature):
-    if TARGET_RADIUS_MILES <= 0:
+    if not radius_target_enabled():
         return True
     center = geometry_center(feature.get("geometry"))
     if not center:
@@ -599,7 +614,7 @@ def fetch_active_target_alerts():
                 features.append(feature)
                 seen.add(key)
 
-    if TARGET_RADIUS_MILES > 0:
+    if radius_target_enabled():
         for lat, lon in target_points().values():
             for feature in fetch_alert_features({"point": f"{lat},{lon}"}):
                 key = alert_key(feature)
