@@ -174,6 +174,12 @@ HIGH_SIGNAL_EVENTS = {
     "Severe Thunderstorm Watch",
 }
 
+RADAR_IMAGE_EVENTS = {
+    "Special Weather Statement",
+    "Tornado Warning",
+    "Severe Thunderstorm Warning",
+}
+
 # Shared parsing and presentation tables.
 OKLAHOMA_WORDS = re.compile(
     r"\b(oklahoma|\bok\b|okc|oklahoma city|tulsa|norman|lawton|enid|ardmore|woodward|ponca|stillwater|mcalester|altus|guymon|elk city|clinton|chickasha|shawnee|seminole|ada|durant|idabel)\b",
@@ -848,7 +854,7 @@ def radar_image_url(station=None):
 def alert_radar_image_url(event, geometry=None):
     if not INCLUDE_BRIEF_IMAGES:
         return ""
-    if event not in {"Tornado Warning", "Severe Thunderstorm Warning"}:
+    if event not in RADAR_IMAGE_EVENTS:
         return ""
     return radar_image_url(nearest_radar_station(geometry))
 

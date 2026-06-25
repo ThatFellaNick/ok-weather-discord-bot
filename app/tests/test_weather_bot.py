@@ -346,6 +346,31 @@ class SpcParsingTests(unittest.TestCase):
         self.assertEqual(embed["fields"][1]["name"], "📍 Affected area")
         self.assertIn("/KINX_loop.gif", embed["image"]["url"])
 
+    def test_special_weather_statement_embed_includes_radar(self):
+        props = {
+            "event": "Special Weather Statement",
+            "severity": "Moderate",
+            "urgency": "Expected",
+            "certainty": "Observed",
+            "headline": "Special Weather Statement",
+            "description": (
+                "HAZARD... Wind gusts up to 50 mph and half inch hail. "
+                "SOURCE... Radar indicated. "
+                "IMPACT... Gusty winds could knock down tree limbs."
+            ),
+            "instruction": "If outdoors, consider seeking shelter inside a building.",
+            "areaDesc": "Kay",
+            "@id": "https://example.test/sws",
+        }
+        geometry = {"type": "Point", "coordinates": [-97.08, 36.70]}
+
+        embed = weather_bot.build_alert_embed(props, geometry=geometry)
+
+        self.assertEqual(embed["title"], "Special Weather Statement")
+        self.assertIn("Wind gusts", embed["description"])
+        self.assertIn("image", embed)
+        self.assertIn("_loop.gif", embed["image"]["url"])
+
     def test_tornado_warning_embed_is_highest_priority_with_radar(self):
         props = {
             "event": "Tornado Warning",
