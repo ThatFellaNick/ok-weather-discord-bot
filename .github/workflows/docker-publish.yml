@@ -61,5 +61,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          short-description: US weather Discord bot with NWS/SPC alerts, scheduled briefings, and configurable state or radius targeting.
+          short-description: US weather Discord bot for NWS/SPC alerts, briefings, and state or radius targeting.
           readme-filepath: ./README.md
