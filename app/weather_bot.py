@@ -292,7 +292,8 @@ def target_search_terms():
 
 
 def target_location_pattern():
-    return "|".join(re.escape(term) for term in target_search_terms())
+    terms = sorted(target_search_terms(), key=len, reverse=True)
+    return "|".join(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])" for term in terms)
 
 
 def target_words_regex():

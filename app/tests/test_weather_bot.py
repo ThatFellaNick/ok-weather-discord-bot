@@ -185,6 +185,33 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_spc_watch_does_not_match_ok_inside_lookout(self):
+        entry = {
+            "id": "spc-watch-390",
+            "title": "SPC Severe Thunderstorm Watch 390",
+            "summary": (
+                "SEL0 URGENT - IMMEDIATE BROADCAST REQUESTED Severe Thunderstorm Watch Number 390 "
+                "NWS Storm Prediction Center Norman OK. "
+                "THESE AREAS SHOULD BE ON THE LOOKOUT FOR THREATENING WEATHER CONDITIONS. "
+                "Primary threats include... Scattered damaging winds and isolated significant gusts to 75 mph possible. "
+                "SUMMARY... Severe storms are expected across portions of Colorado and Nebraska."
+            ),
+            "link": "https://example.test/watch-390",
+        }
+        calls = []
+        old_fetch = weather_bot.fetch_spc_entries
+        old_post = weather_bot.post_discord
+        weather_bot.fetch_spc_entries = lambda: [entry]
+        weather_bot.post_discord = lambda *args, **kwargs: calls.append((args, kwargs)) or True
+        try:
+            weather_bot.send_new_spc_items({"seen_spc": []})
+        finally:
+            weather_bot.fetch_spc_entries = old_fetch
+            weather_bot.post_discord = old_post
+
+        self.assertEqual(weather_bot.spc_explicit_location(entry), "")
+        self.assertEqual(calls, [])
+
     def test_spc_items_dedupe_when_feed_id_changes(self):
         first_entry = {
             "id": "rss-id-1",
