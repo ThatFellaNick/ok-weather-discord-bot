@@ -17,6 +17,14 @@ Never commit `.env`, Discord webhook URLs, state files, runtime data, or logs.
 - Includes NWS point forecasts, Area Forecast Discussion notes, SPC Day 1/Day 2 outlooks, SPC GIS risk summaries, and optional radar/SPC images.
 - Stores dedupe and schedule state in Docker `/data`.
 
+## Example Posts
+
+| Tornado warning with radar | SPC mesoscale discussion |
+| --- | --- |
+| ![Tornado warning Discord example](https://raw.githubusercontent.com/ThatFellaNick/ok-weather-discord-bot/main/docs/images/tornado-warning-example.png) | ![SPC mesoscale discussion Discord example](https://raw.githubusercontent.com/ThatFellaNick/ok-weather-discord-bot/main/docs/images/spc-md-example.png) |
+
+![Weather brief Discord example](https://raw.githubusercontent.com/ThatFellaNick/ok-weather-discord-bot/main/docs/images/weather-brief-example.png)
+
 ## Quick Start on Any Docker Host
 
 Use the published Docker image when you just want to run the bot:
