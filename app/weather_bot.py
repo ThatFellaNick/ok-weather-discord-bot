@@ -4,13 +4,13 @@ Runs as a long-lived Docker service for configurable US weather monitoring.
 
 Responsibilities:
 - Poll NWS active alerts and SPC products.
-- Post selected regional alerts and SPC items to Discord.
+- Post selected regional alerts and SPC items to Discord and/or Teams.
 - Send scheduled regional weather briefings with SPC, radar, forecast point,
   and forecaster-discussion context.
 - Store dedupe and scheduling state under the Docker /data mount.
 
 Security notes:
-- Discord webhook URLs must come from environment variables only.
+- Discord and Microsoft Teams webhook URLs must come from environment variables only.
 - Runtime state, logs, and local .env files are not source files.
 """
 
@@ -35,6 +35,10 @@ BRIEF_WEBHOOK_URL = os.getenv("BRIEF_WEBHOOK_URL", "")
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
 BRIEF_WEBHOOK_URLS = os.getenv("BRIEF_WEBHOOK_URLS", "")
 ALERT_WEBHOOK_URLS = os.getenv("ALERT_WEBHOOK_URLS", "")
+TEAMS_BRIEF_WEBHOOK_URL = os.getenv("TEAMS_BRIEF_WEBHOOK_URL", "")
+TEAMS_ALERT_WEBHOOK_URL = os.getenv("TEAMS_ALERT_WEBHOOK_URL", "")
+TEAMS_BRIEF_WEBHOOK_URLS = os.getenv("TEAMS_BRIEF_WEBHOOK_URLS", "")
+TEAMS_ALERT_WEBHOOK_URLS = os.getenv("TEAMS_ALERT_WEBHOOK_URLS", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "180"))
 BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "9"))
 BRIEF_MINUTE = int(os.getenv("BRIEF_MINUTE", "0"))
@@ -42,6 +46,7 @@ AFTERNOON_SEVERE_BRIEF_ENABLED = os.getenv("AFTERNOON_SEVERE_BRIEF_ENABLED", "tr
 AFTERNOON_SEVERE_BRIEF_HOUR = int(os.getenv("AFTERNOON_SEVERE_BRIEF_HOUR", "15"))
 AFTERNOON_SEVERE_BRIEF_MINUTE = int(os.getenv("AFTERNOON_SEVERE_BRIEF_MINUTE", "30"))
 DISCORD_MAX_RETRIES = int(os.getenv("DISCORD_MAX_RETRIES", "3"))
+TEAMS_MAX_RETRIES = int(os.getenv("TEAMS_MAX_RETRIES", os.getenv("DISCORD_MAX_RETRIES", "3")))
 HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
 SEVERE_THUNDERSTORM_WARNING_MODE = os.getenv("SEVERE_THUNDERSTORM_WARNING_MODE", "all").lower()
 STATE_FILE = os.getenv("STATE_FILE", "/data/state.json")
@@ -495,7 +500,7 @@ def get_json_with_params(url, params):
 
 
 def post_discord(webhook_url, content=None, embeds=None):
-    if not webhook_url or "YOUR_" in webhook_url or "PASTE_" in webhook_url:
+    if not webhook_url or "YOUR_" in webhook_url or "PASTE_" in webhook_url or "REPLACE_ME" in webhook_url:
         log.info("Webhook URL not configured, skipping Discord post")
         return False
     payload = {}
@@ -528,6 +533,98 @@ def post_discord(webhook_url, content=None, embeds=None):
     return False
 
 
+def teams_color(color):
+    if not isinstance(color, int):
+        return "607D8B"
+    return f"{max(0, min(color, 0xFFFFFF)):06X}"
+
+
+def teams_text(*parts, max_len=7000):
+    text = "\n\n".join(str(part) for part in parts if part)
+    if not text:
+        return ""
+    text = text.replace("**", "")
+    return clean(text, max_len)
+
+
+def teams_message_card_from_embed(embed=None, content=None):
+    """Convert one Discord-style embed into a Teams MessageCard payload."""
+    embed = embed or {}
+    title = teams_text(embed.get("title") or content or "Weather Bot", max_len=200)
+    card = {
+        "@type": "MessageCard",
+        "@context": "https://schema.org/extensions",
+        "summary": teams_text(title, max_len=200),
+        "themeColor": teams_color(embed.get("color")),
+        "title": title,
+    }
+    body = teams_text(content, embed.get("description"), max_len=7000)
+    if body:
+        card["text"] = body
+
+    section = {}
+    facts = []
+    for field in embed.get("fields", [])[:12]:
+        name = teams_text(field.get("name", ""), max_len=80)
+        value = teams_text(field.get("value", ""), max_len=800)
+        if name and value:
+            facts.append({"name": name, "value": value})
+    if facts:
+        section["facts"] = facts
+
+    image_url = (embed.get("image") or {}).get("url", "")
+    if isinstance(image_url, str) and image_url.startswith(("https://", "http://")):
+        section["images"] = [{"image": image_url}]
+    if section:
+        card["sections"] = [section]
+
+    url = embed.get("url", "")
+    if isinstance(url, str) and url.startswith(("https://", "http://")):
+        card["potentialAction"] = [
+            {
+                "@type": "OpenUri",
+                "name": "Open source",
+                "targets": [{"os": "default", "uri": url}],
+            }
+        ]
+    return card
+
+
+def post_teams(webhook_url, content=None, embeds=None):
+    if not webhook_url or "YOUR_" in webhook_url or "PASTE_" in webhook_url or "REPLACE_ME" in webhook_url:
+        log.info("Webhook URL not configured, skipping Teams post")
+        return False
+
+    embed_cards = embeds[:10] if embeds else [None]
+    sent_any = False
+    for index, embed in enumerate(embed_cards):
+        payload = teams_message_card_from_embed(embed, content=content if index == 0 else None)
+        for attempt in range(1, TEAMS_MAX_RETRIES + 1):
+            try:
+                r = requests.post(webhook_url, json=payload, timeout=20)
+                if r.status_code == 429:
+                    retry_after = float(r.headers.get("Retry-After", attempt))
+                    log.warning("Teams rate limited; retrying in %.1f seconds", retry_after)
+                    time.sleep(retry_after)
+                    continue
+                if r.status_code >= 500 and attempt < TEAMS_MAX_RETRIES:
+                    log.warning("Teams post failed %s; retrying", r.status_code)
+                    time.sleep(attempt)
+                    continue
+                if r.status_code >= 300:
+                    log.warning("Teams post failed %s: %s", r.status_code, r.text[:500])
+                    return sent_any
+                sent_any = True
+                break
+            except Exception as e:
+                if attempt >= TEAMS_MAX_RETRIES:
+                    log.warning("Teams post exception: %s", e)
+                    return sent_any
+                log.warning("Teams post exception; retrying: %s", e)
+                time.sleep(attempt)
+    return sent_any
+
+
 def post_discord_many(webhook_urls, content=None, embeds=None):
     urls = webhook_urls if isinstance(webhook_urls, list) else [webhook_urls]
     if not urls:
@@ -539,12 +636,41 @@ def post_discord_many(webhook_urls, content=None, embeds=None):
     return sent_any
 
 
+def post_teams_many(webhook_urls, content=None, embeds=None):
+    urls = webhook_urls if isinstance(webhook_urls, list) else [webhook_urls]
+    sent_any = False
+    for url in urls:
+        if post_teams(url, content=content, embeds=embeds):
+            sent_any = True
+    return sent_any
+
+
 def brief_webhook_urls():
     return split_webhook_urls(BRIEF_WEBHOOK_URL, BRIEF_WEBHOOK_URLS)
 
 
 def alert_webhook_urls():
     return split_webhook_urls(ALERT_WEBHOOK_URL, ALERT_WEBHOOK_URLS)
+
+
+def teams_brief_webhook_urls():
+    return split_webhook_urls(TEAMS_BRIEF_WEBHOOK_URL, TEAMS_BRIEF_WEBHOOK_URLS)
+
+
+def teams_alert_webhook_urls():
+    return split_webhook_urls(TEAMS_ALERT_WEBHOOK_URL, TEAMS_ALERT_WEBHOOK_URLS)
+
+
+def post_brief_channels(content=None, embeds=None):
+    discord_sent = post_discord_many(brief_webhook_urls(), content=content, embeds=embeds)
+    teams_sent = post_teams_many(teams_brief_webhook_urls(), content=content, embeds=embeds)
+    return discord_sent or teams_sent
+
+
+def post_alert_channels(content=None, embeds=None):
+    discord_sent = post_discord_many(alert_webhook_urls(), content=content, embeds=embeds)
+    teams_sent = post_teams_many(teams_alert_webhook_urls(), content=content, embeds=embeds)
+    return discord_sent or teams_sent
 
 
 # Text cleanup and small formatting helpers.
@@ -922,7 +1048,7 @@ def send_new_nws_alerts(state):
             continue
         event = props.get("event", "Weather Alert")
         embed = build_alert_embed(props, geometry=feature.get("geometry"))
-        if post_discord_many(alert_webhook_urls(), content=alert_post_content(event, props), embeds=[embed]):
+        if post_alert_channels(content=alert_post_content(event, props), embeds=[embed]):
             new_keys.append(key)
             seen.add(key)
             sent += 1
@@ -1087,8 +1213,7 @@ def send_new_spc_items(state):
         keys = spc_entry_keys(entry)
         if seen.intersection(keys):
             continue
-        if post_discord_many(
-            alert_webhook_urls(),
+        if post_alert_channels(
             content=spc_item_content(entry),
             embeds=[build_spc_item_embed(entry)],
         ):
@@ -1633,7 +1758,7 @@ def post_brief(title=None, content_prefix=None, bottom_line_label="Bottom line")
     content_prefix = content_prefix or f"🌦️ {target_label()} Weather Brief"
     data = build_brief_data()
     content = f"**{content_prefix}** - {data['now']}"
-    return post_discord_many(brief_webhook_urls(), content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
+    return post_brief_channels(content=content, embeds=build_brief_embeds(data, title, bottom_line_label))
 
 
 # Manual triggers, scheduled briefings, startup messages, and main loop.
@@ -1679,8 +1804,7 @@ def maybe_send_alert_test():
         "expires": (now + timedelta(minutes=30)).isoformat(),
         "@id": "https://alerts.weather.gov",
     }
-    ok = post_discord_many(
-        alert_webhook_urls(),
+    ok = post_alert_channels(
         content="**Alert webhook test**",
         embeds=[build_alert_embed(test_props, title=f"{target_label()} Weather Bot Alert Test")],
     )
@@ -1739,24 +1863,26 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.4.3"
+        "Version: v2.5.4"
     )
-    if post_discord_many(brief_webhook_urls(), content=msg):
+    if post_brief_channels(content=msg):
         state["startup_sent"] = True
         log.info("Startup message sent")
 
 
 def log_config_summary():
     log.info(
-        "Config: brief_webhook=%s alert_webhook=%s severe_thunderstorm_warning_mode=%s",
+        "Config: discord_brief_webhooks=%s discord_alert_webhooks=%s teams_brief_webhooks=%s teams_alert_webhooks=%s severe_thunderstorm_warning_mode=%s",
         len(brief_webhook_urls()),
         len(alert_webhook_urls()),
+        len(teams_brief_webhook_urls()),
+        len(teams_alert_webhook_urls()),
         SEVERE_THUNDERSTORM_WARNING_MODE,
     )
 
 
 def main():
-    log.info("Starting Weather Discord Bot v2.5")
+    log.info("Starting Weather Discord/Teams Bot v2.5.4")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)

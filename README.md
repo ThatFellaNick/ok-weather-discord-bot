@@ -39,8 +39,8 @@ cp config.example.env .env
 
 Edit `.env`, at minimum:
 
-- `BRIEF_WEBHOOK_URL`
-- `ALERT_WEBHOOK_URL`
+- `BRIEF_WEBHOOK_URL` or `TEAMS_BRIEF_WEBHOOK_URL`
+- `ALERT_WEBHOOK_URL` or `TEAMS_ALERT_WEBHOOK_URL`
 - `NWS_USER_AGENT`, including your contact email
 - `TARGET_NAME`
 - `TARGET_MODE`
@@ -85,7 +85,7 @@ docker compose up -d --build
 To pin a specific published version later, set `BOT_IMAGE` in `.env`, for example:
 
 ```env
-BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.0
+BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.4
 ```
 
 ## Build Locally From Git
@@ -134,20 +134,32 @@ TARGET_RADIUS_MILES=50
 
 Use `TARGET_MODE=state` for one or more full states. Use `TARGET_MODE=radius` for a city/town/custom GPS setup. For radius setups, look up the latitude and longitude and put it in `TARGET_POINTS`; `TARGET_STATES` should include the state being monitored and any nearby border states the radius crosses, such as `TARGET_STATES=KS,OK`.
 
-## Multiple Discord Channels
+## Discord and Microsoft Teams Channels
 
-Use the single webhook variables for normal setups:
+Use the single webhook variables for normal Discord setups:
 
 ```env
 BRIEF_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
 ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
 ```
 
+To also post to Microsoft Teams, add Teams incoming webhook URLs:
+
+```env
+TEAMS_BRIEF_WEBHOOK_URL=https://example.webhook.office.com/REPLACE_ME
+TEAMS_ALERT_WEBHOOK_URL=https://example.webhook.office.com/REPLACE_ME
+```
+
+Discord and Teams can be used together, or you can leave the Discord variables
+empty and only configure Teams.
+
 To post to more than one channel, add extra URLs to the plural variables:
 
 ```env
 BRIEF_WEBHOOK_URLS=https://discord.com/api/webhooks/REPLACE_ME,https://discord.com/api/webhooks/REPLACE_ME
 ALERT_WEBHOOK_URLS=https://discord.com/api/webhooks/REPLACE_ME https://discord.com/api/webhooks/REPLACE_ME
+TEAMS_BRIEF_WEBHOOK_URLS=https://example.webhook.office.com/REPLACE_ME,https://example.webhook.office.com/REPLACE_ME
+TEAMS_ALERT_WEBHOOK_URLS=https://example.webhook.office.com/REPLACE_ME https://example.webhook.office.com/REPLACE_ME
 ```
 
 ## Unraid Notes
@@ -185,7 +197,7 @@ Tags:
 
 - `latest` on pushes to `main`
 - `main` on pushes to `main`
-- version tags such as `v2.5.0` when you push a matching git tag
+- version tags such as `v2.5.4` when you push a matching git tag
 - `sha-...` tags for exact commit builds
 
 ## Environment Variables
@@ -198,6 +210,10 @@ All supported environment variables are shown in `config.example.env`.
 | `BRIEF_WEBHOOK_URLS` | Optional extra brief webhooks, separated by commas or spaces. | empty |
 | `ALERT_WEBHOOK_URL` | Discord webhook for NWS alerts and SPC RSS items. | empty |
 | `ALERT_WEBHOOK_URLS` | Optional extra alert webhooks, separated by commas or spaces. | empty |
+| `TEAMS_BRIEF_WEBHOOK_URL` | Microsoft Teams webhook for scheduled briefings, startup messages, test briefings, and manual briefings. | empty |
+| `TEAMS_BRIEF_WEBHOOK_URLS` | Optional extra Teams brief webhooks, separated by commas or spaces. | empty |
+| `TEAMS_ALERT_WEBHOOK_URL` | Microsoft Teams webhook for NWS alerts and SPC RSS items. | empty |
+| `TEAMS_ALERT_WEBHOOK_URLS` | Optional extra Teams alert webhooks, separated by commas or spaces. | empty |
 | `NWS_USER_AGENT` | User-Agent sent to NWS/SPC requests. Include a contact email. | `ok-weather-discord-bot/2.4` |
 | `TARGET_NAME` | Human-readable area name used in Discord posts. | `Oklahoma` |
 | `TARGET_MODE` | `state` for full-state monitoring or `radius` for GPS/radius monitoring. | `state` |
@@ -224,6 +240,7 @@ All supported environment variables are shown in `config.example.env`.
 | `INCLUDE_BRIEF_IMAGES` | Include SPC outlook map images, SPC RSS item images, and radar loop embeds. | `true` |
 | `RADAR_STATIONS` | Optional comma-separated radar IDs. Leave blank to auto-detect from `TARGET_POINTS`; the default Oklahoma profile falls back to `KTLX,KINX,KFDR`. | auto |
 | `DISCORD_MAX_RETRIES` | Maximum Discord webhook attempts per post. | `3` |
+| `TEAMS_MAX_RETRIES` | Maximum Microsoft Teams webhook attempts per post. | `DISCORD_MAX_RETRIES` |
 | `BOT_IMAGE` | Docker image used by Compose. Pin this to a version tag if you do not want `latest`. | `thatfellanick/ok-weather-discord-bot:latest` |
 
 ## Manual Triggers
@@ -234,7 +251,7 @@ Create the trigger file on the Docker host to request a briefing outside the sch
 touch ./data/trigger_brief
 ```
 
-The bot checks for this file during the normal polling loop. After a successful Discord post, it removes the trigger file. If posting fails, the file is left in place so the next loop can retry.
+The bot checks for this file during the normal polling loop. After a successful webhook post, it removes the trigger file. If posting fails, the file is left in place so the next loop can retry.
 
 To test the alert webhook directly:
 

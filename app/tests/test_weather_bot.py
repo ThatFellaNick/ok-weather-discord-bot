@@ -32,6 +32,62 @@ def load_weather_bot():
 weather_bot = load_weather_bot()
 
 
+class TeamsWebhookTests(unittest.TestCase):
+    def test_teams_message_card_from_embed_maps_fields_image_and_color(self):
+        embed = {
+            "title": "Tornado Warning",
+            "description": "Take shelter now.",
+            "color": 0xCC0033,
+            "url": "https://alerts.weather.gov/example",
+            "fields": [
+                {"name": "Affected area", "value": "Payne, OK"},
+                {"name": "Timing", "value": "Expires 8:45 PM CDT"},
+            ],
+            "image": {"url": "https://radar.weather.gov/example.png"},
+        }
+
+        card = weather_bot.teams_message_card_from_embed(embed, content="Alert post")
+
+        self.assertEqual(card["@type"], "MessageCard")
+        self.assertEqual(card["themeColor"], "CC0033")
+        self.assertEqual(card["title"], "Tornado Warning")
+        self.assertIn("Alert post", card["text"])
+        self.assertIn("Take shelter now.", card["text"])
+        self.assertEqual(card["sections"][0]["facts"][0]["name"], "Affected area")
+        self.assertEqual(card["sections"][0]["images"][0]["image"], "https://radar.weather.gov/example.png")
+        self.assertEqual(card["potentialAction"][0]["targets"][0]["uri"], "https://alerts.weather.gov/example")
+
+    def test_alert_channels_can_send_to_teams_without_discord_webhook(self):
+        discord_calls = []
+        teams_calls = []
+        old_alert_url = weather_bot.ALERT_WEBHOOK_URL
+        old_alert_urls = weather_bot.ALERT_WEBHOOK_URLS
+        old_teams_alert_url = weather_bot.TEAMS_ALERT_WEBHOOK_URL
+        old_teams_alert_urls = weather_bot.TEAMS_ALERT_WEBHOOK_URLS
+        old_post_discord = weather_bot.post_discord
+        old_post_teams = weather_bot.post_teams
+        weather_bot.ALERT_WEBHOOK_URL = ""
+        weather_bot.ALERT_WEBHOOK_URLS = ""
+        weather_bot.TEAMS_ALERT_WEBHOOK_URL = "https://example.test/teams"
+        weather_bot.TEAMS_ALERT_WEBHOOK_URLS = ""
+        weather_bot.post_discord = lambda *args, **kwargs: discord_calls.append((args, kwargs)) or False
+        weather_bot.post_teams = lambda *args, **kwargs: teams_calls.append((args, kwargs)) or True
+        try:
+            sent = weather_bot.post_alert_channels(content="Alert", embeds=[{"title": "Warning"}])
+        finally:
+            weather_bot.ALERT_WEBHOOK_URL = old_alert_url
+            weather_bot.ALERT_WEBHOOK_URLS = old_alert_urls
+            weather_bot.TEAMS_ALERT_WEBHOOK_URL = old_teams_alert_url
+            weather_bot.TEAMS_ALERT_WEBHOOK_URLS = old_teams_alert_urls
+            weather_bot.post_discord = old_post_discord
+            weather_bot.post_teams = old_post_teams
+
+        self.assertTrue(sent)
+        self.assertEqual(len(discord_calls), 1)
+        self.assertEqual(len(teams_calls), 1)
+        self.assertEqual(teams_calls[0][0][0], "https://example.test/teams")
+
+
 class SpcParsingTests(unittest.TestCase):
     def test_parse_spc_outlook_ignores_geographic_high_word(self):
         text = """
