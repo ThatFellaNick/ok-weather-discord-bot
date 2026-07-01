@@ -61,6 +61,22 @@ class TeamsWebhookTests(unittest.TestCase):
         self.assertEqual(card["body"][3]["url"], "https://radar.weather.gov/example.png")
         self.assertEqual(card["actions"][0]["url"], "https://alerts.weather.gov/example")
 
+    def test_teams_payload_combines_multiple_embeds_into_one_attachment(self):
+        embeds = [
+            {"title": "Weather Brief", "description": "Bottom line"},
+            {"title": "City snapshots", "fields": [{"name": "OKC", "value": "Sunny"}]},
+            {"title": "SPC Day 1", "url": "https://www.spc.noaa.gov/products/outlook/day1otlk.html"},
+        ]
+
+        payload = weather_bot.teams_payload_from_embeds(embeds, content="Brief header")
+        card = payload["attachments"][0]["content"]
+
+        self.assertEqual(len(payload["attachments"]), 1)
+        self.assertEqual(card["body"][0]["text"], "Weather Brief")
+        self.assertTrue(any(item.get("text") == "City snapshots" for item in card["body"]))
+        self.assertTrue(any(item.get("facts", [{}])[0].get("title") == "OKC" for item in card["body"] if item.get("type") == "FactSet"))
+        self.assertEqual(card["actions"][0]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.html")
+
     def test_alert_channels_can_send_to_teams_without_discord_webhook(self):
         discord_calls = []
         teams_calls = []

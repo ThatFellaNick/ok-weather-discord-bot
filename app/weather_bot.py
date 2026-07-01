@@ -547,19 +547,18 @@ def teams_text(*parts, max_len=7000):
     return clean(text, max_len)
 
 
-def teams_adaptive_card_from_embed(embed=None, content=None):
-    """Convert one Discord-style embed into a Teams Workflow Adaptive Card."""
+def teams_body_items_from_embed(embed=None, content=None, show_title=True):
     embed = embed or {}
     title = teams_text(embed.get("title") or content or "Weather Bot", max_len=200)
-    body_items = [
-        {
+    body_items = []
+    if show_title and title:
+        body_items.append({
             "type": "TextBlock",
             "text": title,
             "weight": "Bolder",
             "size": "Medium",
             "wrap": True,
-        }
-    ]
+        })
 
     body = teams_text(content, embed.get("description"), max_len=7000)
     if body:
@@ -578,6 +577,13 @@ def teams_adaptive_card_from_embed(embed=None, content=None):
     if isinstance(image_url, str) and image_url.startswith(("https://", "http://")):
         body_items.append({"type": "Image", "url": image_url})
 
+    return body_items
+
+
+def teams_adaptive_card_from_embed(embed=None, content=None):
+    """Convert one Discord-style embed into a Teams Workflow Adaptive Card."""
+    body_items = teams_body_items_from_embed(embed, content=content)
+    embed = embed or {}
     card = {
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "type": "AdaptiveCard",
@@ -591,17 +597,44 @@ def teams_adaptive_card_from_embed(embed=None, content=None):
     return card
 
 
-def teams_payload_from_embed(embed=None, content=None):
+def teams_adaptive_card_from_embeds(embeds=None, content=None):
+    """Combine a Discord multi-embed message into one Teams card/thread."""
+    embeds = embeds[:10] if embeds else [None]
+    body_items = []
+    actions = []
+    for index, embed in enumerate(embeds):
+        if index:
+            body_items.append({"type": "TextBlock", "text": " ", "separator": True})
+        body_items.extend(teams_body_items_from_embed(embed, content=content if index == 0 else None))
+        url = (embed or {}).get("url", "") if embed else ""
+        if isinstance(url, str) and url.startswith(("https://", "http://")) and len(actions) < 6:
+            title = teams_text((embed or {}).get("title") or "Open source", max_len=40)
+            actions.append({"type": "Action.OpenUrl", "title": title, "url": url})
+
+    return {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.2",
+        "body": body_items or [{"type": "TextBlock", "text": "Weather Bot", "wrap": True}],
+        **({"actions": actions} if actions else {}),
+    }
+
+
+def teams_payload_from_embeds(embeds=None, content=None):
     return {
         "type": "message",
         "attachments": [
             {
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "contentUrl": None,
-                "content": teams_adaptive_card_from_embed(embed, content=content),
+                "content": teams_adaptive_card_from_embeds(embeds, content=content),
             }
         ],
     }
+
+
+def teams_payload_from_embed(embed=None, content=None):
+    return teams_payload_from_embeds([embed] if embed else None, content=content)
 
 
 def post_teams(webhook_url, content=None, embeds=None):
@@ -609,33 +642,31 @@ def post_teams(webhook_url, content=None, embeds=None):
         log.info("Webhook URL not configured, skipping Teams post")
         return False
 
-    embed_cards = embeds[:10] if embeds else [None]
     sent_any = False
-    for index, embed in enumerate(embed_cards):
-        payload = teams_payload_from_embed(embed, content=content if index == 0 else None)
-        for attempt in range(1, TEAMS_MAX_RETRIES + 1):
-            try:
-                r = requests.post(webhook_url, json=payload, timeout=20)
-                if r.status_code == 429:
-                    retry_after = float(r.headers.get("Retry-After", attempt))
-                    log.warning("Teams rate limited; retrying in %.1f seconds", retry_after)
-                    time.sleep(retry_after)
-                    continue
-                if r.status_code >= 500 and attempt < TEAMS_MAX_RETRIES:
-                    log.warning("Teams post failed %s; retrying", r.status_code)
-                    time.sleep(attempt)
-                    continue
-                if r.status_code >= 300:
-                    log.warning("Teams post failed %s: %s", r.status_code, r.text[:500])
-                    return sent_any
-                sent_any = True
-                break
-            except Exception as e:
-                if attempt >= TEAMS_MAX_RETRIES:
-                    log.warning("Teams post exception: %s", e)
-                    return sent_any
-                log.warning("Teams post exception; retrying: %s", e)
+    payload = teams_payload_from_embeds(embeds, content=content)
+    for attempt in range(1, TEAMS_MAX_RETRIES + 1):
+        try:
+            r = requests.post(webhook_url, json=payload, timeout=20)
+            if r.status_code == 429:
+                retry_after = float(r.headers.get("Retry-After", attempt))
+                log.warning("Teams rate limited; retrying in %.1f seconds", retry_after)
+                time.sleep(retry_after)
+                continue
+            if r.status_code >= 500 and attempt < TEAMS_MAX_RETRIES:
+                log.warning("Teams post failed %s; retrying", r.status_code)
                 time.sleep(attempt)
+                continue
+            if r.status_code >= 300:
+                log.warning("Teams post failed %s: %s", r.status_code, r.text[:500])
+                return sent_any
+            sent_any = True
+            break
+        except Exception as e:
+            if attempt >= TEAMS_MAX_RETRIES:
+                log.warning("Teams post exception: %s", e)
+                return sent_any
+            log.warning("Teams post exception; retrying: %s", e)
+            time.sleep(attempt)
     return sent_any
 
 
@@ -1910,7 +1941,7 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.5.7"
+        "Version: v2.5.8"
     )
     if post_brief_channels(content=msg):
         state["startup_sent"] = True
@@ -1929,7 +1960,7 @@ def log_config_summary():
 
 
 def main():
-    log.info("Starting Weather Discord/Teams Bot v2.5.7")
+    log.info("Starting Weather Discord/Teams Bot v2.5.8")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)
