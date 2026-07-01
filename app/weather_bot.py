@@ -576,12 +576,12 @@ def teams_adaptive_card_from_embed(embed=None, content=None):
 
     image_url = (embed.get("image") or {}).get("url", "")
     if isinstance(image_url, str) and image_url.startswith(("https://", "http://")):
-        body_items.append({"type": "Image", "url": image_url, "size": "Stretch"})
+        body_items.append({"type": "Image", "url": image_url})
 
     card = {
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "type": "AdaptiveCard",
-        "version": "1.4",
+        "version": "1.2",
         "body": body_items,
     }
 
@@ -597,6 +597,7 @@ def teams_payload_from_embed(embed=None, content=None):
         "attachments": [
             {
                 "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
                 "content": teams_adaptive_card_from_embed(embed, content=content),
             }
         ],
@@ -1876,7 +1877,7 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.5.5"
+        "Version: v2.5.6"
     )
     if post_brief_channels(content=msg):
         state["startup_sent"] = True
@@ -1895,7 +1896,7 @@ def log_config_summary():
 
 
 def main():
-    log.info("Starting Weather Discord/Teams Bot v2.5.5")
+    log.info("Starting Weather Discord/Teams Bot v2.5.6")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)

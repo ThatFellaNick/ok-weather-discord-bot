@@ -51,7 +51,9 @@ class TeamsWebhookTests(unittest.TestCase):
 
         self.assertEqual(payload["type"], "message")
         self.assertEqual(payload["attachments"][0]["contentType"], "application/vnd.microsoft.card.adaptive")
+        self.assertIsNone(payload["attachments"][0]["contentUrl"])
         self.assertEqual(card["type"], "AdaptiveCard")
+        self.assertEqual(card["version"], "1.2")
         self.assertEqual(card["body"][0]["text"], "Tornado Warning")
         self.assertIn("Alert post", card["body"][1]["text"])
         self.assertIn("Take shelter now.", card["body"][1]["text"])
