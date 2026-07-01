@@ -33,7 +33,7 @@ weather_bot = load_weather_bot()
 
 
 class TeamsWebhookTests(unittest.TestCase):
-    def test_teams_message_card_from_embed_maps_fields_image_and_color(self):
+    def test_teams_payload_from_embed_maps_fields_image_and_actions(self):
         embed = {
             "title": "Tornado Warning",
             "description": "Take shelter now.",
@@ -46,16 +46,18 @@ class TeamsWebhookTests(unittest.TestCase):
             "image": {"url": "https://radar.weather.gov/example.png"},
         }
 
-        card = weather_bot.teams_message_card_from_embed(embed, content="Alert post")
+        payload = weather_bot.teams_payload_from_embed(embed, content="Alert post")
+        card = payload["attachments"][0]["content"]
 
-        self.assertEqual(card["@type"], "MessageCard")
-        self.assertEqual(card["themeColor"], "CC0033")
-        self.assertEqual(card["title"], "Tornado Warning")
-        self.assertIn("Alert post", card["text"])
-        self.assertIn("Take shelter now.", card["text"])
-        self.assertEqual(card["sections"][0]["facts"][0]["name"], "Affected area")
-        self.assertEqual(card["sections"][0]["images"][0]["image"], "https://radar.weather.gov/example.png")
-        self.assertEqual(card["potentialAction"][0]["targets"][0]["uri"], "https://alerts.weather.gov/example")
+        self.assertEqual(payload["type"], "message")
+        self.assertEqual(payload["attachments"][0]["contentType"], "application/vnd.microsoft.card.adaptive")
+        self.assertEqual(card["type"], "AdaptiveCard")
+        self.assertEqual(card["body"][0]["text"], "Tornado Warning")
+        self.assertIn("Alert post", card["body"][1]["text"])
+        self.assertIn("Take shelter now.", card["body"][1]["text"])
+        self.assertEqual(card["body"][2]["facts"][0]["title"], "Affected area")
+        self.assertEqual(card["body"][3]["url"], "https://radar.weather.gov/example.png")
+        self.assertEqual(card["actions"][0]["url"], "https://alerts.weather.gov/example")
 
     def test_alert_channels_can_send_to_teams_without_discord_webhook(self):
         discord_calls = []

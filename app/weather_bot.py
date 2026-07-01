@@ -547,47 +547,60 @@ def teams_text(*parts, max_len=7000):
     return clean(text, max_len)
 
 
-def teams_message_card_from_embed(embed=None, content=None):
-    """Convert one Discord-style embed into a Teams MessageCard payload."""
+def teams_adaptive_card_from_embed(embed=None, content=None):
+    """Convert one Discord-style embed into a Teams Workflow Adaptive Card."""
     embed = embed or {}
     title = teams_text(embed.get("title") or content or "Weather Bot", max_len=200)
-    card = {
-        "@type": "MessageCard",
-        "@context": "https://schema.org/extensions",
-        "summary": teams_text(title, max_len=200),
-        "themeColor": teams_color(embed.get("color")),
-        "title": title,
-    }
+    body_items = [
+        {
+            "type": "TextBlock",
+            "text": title,
+            "weight": "Bolder",
+            "size": "Medium",
+            "wrap": True,
+        }
+    ]
+
     body = teams_text(content, embed.get("description"), max_len=7000)
     if body:
-        card["text"] = body
+        body_items.append({"type": "TextBlock", "text": body, "wrap": True})
 
-    section = {}
     facts = []
     for field in embed.get("fields", [])[:12]:
         name = teams_text(field.get("name", ""), max_len=80)
         value = teams_text(field.get("value", ""), max_len=800)
         if name and value:
-            facts.append({"name": name, "value": value})
+            facts.append({"title": name, "value": value})
     if facts:
-        section["facts"] = facts
+        body_items.append({"type": "FactSet", "facts": facts})
 
     image_url = (embed.get("image") or {}).get("url", "")
     if isinstance(image_url, str) and image_url.startswith(("https://", "http://")):
-        section["images"] = [{"image": image_url}]
-    if section:
-        card["sections"] = [section]
+        body_items.append({"type": "Image", "url": image_url, "size": "Stretch"})
+
+    card = {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": body_items,
+    }
 
     url = embed.get("url", "")
     if isinstance(url, str) and url.startswith(("https://", "http://")):
-        card["potentialAction"] = [
-            {
-                "@type": "OpenUri",
-                "name": "Open source",
-                "targets": [{"os": "default", "uri": url}],
-            }
-        ]
+        card["actions"] = [{"type": "Action.OpenUrl", "title": "Open source", "url": url}]
     return card
+
+
+def teams_payload_from_embed(embed=None, content=None):
+    return {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": teams_adaptive_card_from_embed(embed, content=content),
+            }
+        ],
+    }
 
 
 def post_teams(webhook_url, content=None, embeds=None):
@@ -598,7 +611,7 @@ def post_teams(webhook_url, content=None, embeds=None):
     embed_cards = embeds[:10] if embeds else [None]
     sent_any = False
     for index, embed in enumerate(embed_cards):
-        payload = teams_message_card_from_embed(embed, content=content if index == 0 else None)
+        payload = teams_payload_from_embed(embed, content=content if index == 0 else None)
         for attempt in range(1, TEAMS_MAX_RETRIES + 1):
             try:
                 r = requests.post(webhook_url, json=payload, timeout=20)
@@ -1863,7 +1876,7 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.5.4"
+        "Version: v2.5.5"
     )
     if post_brief_channels(content=msg):
         state["startup_sent"] = True
@@ -1882,7 +1895,7 @@ def log_config_summary():
 
 
 def main():
-    log.info("Starting Weather Discord/Teams Bot v2.5.4")
+    log.info("Starting Weather Discord/Teams Bot v2.5.5")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)

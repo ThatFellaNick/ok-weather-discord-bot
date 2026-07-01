@@ -85,7 +85,7 @@ docker compose up -d --build
 To pin a specific published version later, set `BOT_IMAGE` in `.env`, for example:
 
 ```env
-BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.4
+BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.5
 ```
 
 ## Build Locally From Git
@@ -143,7 +143,9 @@ BRIEF_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
 ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/REPLACE_ME
 ```
 
-To also post to Microsoft Teams, add Teams incoming webhook URLs:
+To also post to Microsoft Teams, create a Teams Workflow using the "Send webhook
+alerts to a channel" template, choose the Team and Channel, then copy the
+generated webhook URL into the Teams variables:
 
 ```env
 TEAMS_BRIEF_WEBHOOK_URL=https://example.webhook.office.com/REPLACE_ME
@@ -152,6 +154,9 @@ TEAMS_ALERT_WEBHOOK_URL=https://example.webhook.office.com/REPLACE_ME
 
 Discord and Teams can be used together, or you can leave the Discord variables
 empty and only configure Teams.
+
+The bot sends Teams payloads as Adaptive Card attachments, which matches the
+Workflow template's `attachments` / `content` card-posting path.
 
 To post to more than one channel, add extra URLs to the plural variables:
 
@@ -197,7 +202,7 @@ Tags:
 
 - `latest` on pushes to `main`
 - `main` on pushes to `main`
-- version tags such as `v2.5.4` when you push a matching git tag
+- version tags such as `v2.5.5` when you push a matching git tag
 - `sha-...` tags for exact commit builds
 
 ## Environment Variables
