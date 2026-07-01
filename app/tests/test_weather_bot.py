@@ -705,6 +705,21 @@ class SpcParsingTests(unittest.TestCase):
         self.assertEqual(spc_embeds[0]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day1otlk.png")
         self.assertEqual(spc_embeds[1]["image"]["url"], "https://www.spc.noaa.gov/products/outlook/day2otlk.png")
 
+    def test_spc_brief_wording_does_not_embed_long_target_name(self):
+        old_name = weather_bot.TARGET_NAME
+        weather_bot.TARGET_NAME = "RKB Oklahoma City, Tulsa, Wichita"
+        try:
+            embed = weather_bot.spc_embed(
+                {"day": "Day 1", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "", "summary": ""},
+                "https://example.test/day1.png",
+            )
+        finally:
+            weather_bot.TARGET_NAME = old_name
+
+        self.assertEqual(embed["description"], "Highest SPC signal for the target area: **Marginal**")
+        self.assertEqual(embed["fields"][0]["name"], "📊 Target Area probabilities")
+        self.assertNotIn("RKB Oklahoma City", embed["description"])
+
     def test_overview_uses_strongest_alert_color_when_alerts_exist(self):
         data = {
             "alerts": [{"properties": {"event": "Tornado Warning", "severity": "Extreme"}}],

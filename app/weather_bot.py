@@ -279,6 +279,10 @@ def target_label():
     return TARGET_NAME or ", ".join(TARGET_STATES) or "configured area"
 
 
+def target_area_label():
+    return "target area"
+
+
 def target_mode():
     """Choose state or radius behavior while preserving pre-mode configs."""
     mode = (TARGET_MODE_RAW or "").strip().lower()
@@ -1617,16 +1621,16 @@ def city_forecast_summary(name, lat, lon):
 def bottom_line(day1, active_alerts):
     risk = day1.get("risk", "Unavailable")
     if active_alerts:
-        return f"Active notable alerts are in effect. Highest {target_label()} Day 1 SPC signal found: {risk}."
+        return f"Active notable alerts are in effect. Highest Day 1 SPC signal found for the {target_area_label()}: {risk}."
     if risk in {"Enhanced", "Moderate", "High"}:
-        return f"Heads up: SPC Day 1 shows {risk} risk signal intersecting {target_label()}. Review timing and threats before any travel."
+        return f"Heads up: SPC Day 1 shows {risk} risk signal intersecting the {target_area_label()}. Review timing and threats before any travel."
     if risk in {"Slight", "Marginal"}:
-        return f"Some severe potential is showing in the SPC Day 1 outlook for {target_label()}. Highest signal found: {risk}."
+        return f"Some severe potential is showing in the SPC Day 1 outlook for the {target_area_label()}. Highest signal found: {risk}."
     if risk == "General Thunder":
         return "Thunderstorms may be possible, but no organized severe signal was found by the bot."
     if risk == "Unavailable":
         return "SPC outlook fetch failed, so use SPC/NWS directly for confidence."
-    return f"No active notable {target_label()} alerts and no meaningful severe signal found by the bot."
+    return f"No active notable alerts and no meaningful severe signal found for the {target_area_label()}."
 
 
 def risk_color(risk):
@@ -1670,12 +1674,12 @@ def city_snapshots_embed(forecasts):
 def spc_embed(day, map_url):
     embed = {
         "title": f"🗺️ SPC {day.get('day', 'Outlook')}",
-        "description": f"Highest {target_label()} signal: **{day.get('risk', 'Unavailable')}**",
+        "description": f"Highest SPC signal for the {target_area_label()}: **{day.get('risk', 'Unavailable')}**",
         "color": risk_color(day.get("risk", "Unavailable")),
         "url": day.get("url"),
         "fields": [],
     }
-    add_embed_field(embed, f"📊 {target_label()} probabilities", format_probabilities(day), False)
+    add_embed_field(embed, f"📊 {target_area_label().title()} probabilities", format_probabilities(day), False)
     if day.get("summary"):
         add_embed_field(embed, "🌎 SPC national context", day["summary"], False)
     if should_show_text_risk_lines(day):
@@ -1779,8 +1783,8 @@ def build_brief_message(data=None, title=None, bottom_line_label="Bottom line"):
     lines.append("")
 
     lines.append("**🗺️ SPC Day 1:**")
-    lines.append(f"• Highest {target_label()} signal found: **{day1.get('risk', 'Unavailable')}**")
-    lines.append(f"• {target_label()} probabilities: {format_probabilities(day1)}")
+    lines.append(f"• Highest SPC signal found for the {target_area_label()}: **{day1.get('risk', 'Unavailable')}**")
+    lines.append(f"• {target_area_label().title()} probabilities: {format_probabilities(day1)}")
     if day1.get("summary"):
         lines.append(f"• Summary: {day1['summary']}")
     if should_show_text_risk_lines(day1):
@@ -1790,8 +1794,8 @@ def build_brief_message(data=None, title=None, bottom_line_label="Bottom line"):
     lines.append("")
 
     lines.append("**🗺️ SPC Day 2:**")
-    lines.append(f"• Highest {target_label()} signal found: **{day2.get('risk', 'Unavailable')}**")
-    lines.append(f"• {target_label()} probabilities: {format_probabilities(day2)}")
+    lines.append(f"• Highest SPC signal found for the {target_area_label()}: **{day2.get('risk', 'Unavailable')}**")
+    lines.append(f"• {target_area_label().title()} probabilities: {format_probabilities(day2)}")
     if day2.get("summary"):
         lines.append(f"• Summary: {day2['summary']}")
     if should_show_text_risk_lines(day2):
@@ -1941,7 +1945,7 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.5.8"
+        "Version: v2.5.9"
     )
     if post_brief_channels(content=msg):
         state["startup_sent"] = True
@@ -1960,7 +1964,7 @@ def log_config_summary():
 
 
 def main():
-    log.info("Starting Weather Discord/Teams Bot v2.5.8")
+    log.info("Starting Weather Discord/Teams Bot v2.5.9")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)
