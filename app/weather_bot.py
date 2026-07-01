@@ -1471,6 +1471,33 @@ def parse_afd_notes(product_text):
     return clean(text, 320)
 
 
+def format_afd_office_location(raw_location):
+    location = clean(raw_location, 80)
+    match = re.match(r"(.+?)\s+([A-Z]{2})$", location)
+    if not match:
+        return location.title() if location.isupper() else location
+    city = match.group(1).title()
+    state = match.group(2).upper()
+    return f"{city}, {state}"
+
+
+def afd_office_location(product_text):
+    if not product_text:
+        return ""
+    match = re.search(r"(?im)^\s*National Weather Service\s+(.+?)\s*$", product_text)
+    return format_afd_office_location(match.group(1)) if match else ""
+
+
+def afd_office_display(note):
+    office = str(note.get("office", "")).strip().upper()
+    location = str(note.get("location", "")).strip()
+    if office and location:
+        return f"NWS {office} - {location}"
+    if office:
+        return f"NWS {office}"
+    return "NWS"
+
+
 def summarize_afd_section(section):
     section = clean(section, 700)
     bullets = re.findall(r"(?:^|\s)-\s+(.+?)(?=\s+-\s+|$)", section)
@@ -1512,9 +1539,15 @@ def fetch_forecaster_notes():
     for office in configured_afd_offices()[:4]:
         try:
             product = fetch_latest_product("AFD", office)
-            note = parse_afd_notes(product.get("productText", ""))
+            product_text = product.get("productText", "")
+            note = parse_afd_notes(product_text)
             if note:
-                notes.append({"office": office, "text": note, "url": product.get("@id", "")})
+                notes.append({
+                    "office": office,
+                    "location": afd_office_location(product_text),
+                    "text": note,
+                    "url": product.get("@id", ""),
+                })
         except Exception as e:
             log.warning("Failed to fetch AFD for %s: %s", office, e)
     return notes
@@ -1676,7 +1709,7 @@ def build_brief_embeds(data=None, title=None, bottom_line_label="Bottom line"):
     if notes:
         notes_embed = {"title": "📝 Forecaster Notes", "color": 0x4A90E2, "fields": []}
         for note in notes[:4]:
-            add_embed_field(notes_embed, f"NWS {note['office']}", note["text"], False)
+            add_embed_field(notes_embed, afd_office_display(note), note["text"], False)
         embeds.append(notes_embed)
 
     if INCLUDE_BRIEF_IMAGES and important:
@@ -1757,7 +1790,7 @@ def build_brief_message(data=None, title=None, bottom_line_label="Bottom line"):
         lines.append("")
         lines.append("**📝 Forecaster notes:**")
         for note in forecaster_notes[:3]:
-            lines.append(f"• **NWS {note['office']}**: {note['text']}")
+            lines.append(f"• **{afd_office_display(note)}**: {note['text']}")
 
     lines.append("")
     lines.append("Sources: NWS active alerts, NWS point forecasts, NWS forecast discussions, SPC Day 1/Day 2 outlook text, SPC GIS, SPC RSS.")
@@ -1877,7 +1910,7 @@ def send_startup_message_once(state):
         f"Poll interval: {POLL_SECONDS} seconds\n"
         f"Daily brief: {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TZ.key}\n"
         f"Afternoon severe brief: {afternoon_brief_status}\n"
-        "Version: v2.5.6"
+        "Version: v2.5.7"
     )
     if post_brief_channels(content=msg):
         state["startup_sent"] = True
@@ -1896,7 +1929,7 @@ def log_config_summary():
 
 
 def main():
-    log.info("Starting Weather Discord/Teams Bot v2.5.6")
+    log.info("Starting Weather Discord/Teams Bot v2.5.7")
     log_config_summary()
     state = load_state()
     send_startup_message_once(state)

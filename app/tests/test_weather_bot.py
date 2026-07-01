@@ -491,6 +491,20 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertIn("Severe storms", weather_bot.parse_afd_notes(text))
 
+    def test_afd_office_location_parses_nws_header(self):
+        text = """
+        Area Forecast Discussion
+        National Weather Service Norman OK
+        1234 PM CDT Tue Jun 30 2026
+        """
+
+        self.assertEqual(weather_bot.afd_office_location(text), "Norman, OK")
+
+    def test_afd_office_display_includes_location_when_known(self):
+        note = {"office": "OUN", "location": "Norman, OK", "text": "Storms possible."}
+
+        self.assertEqual(weather_bot.afd_office_display(note), "NWS OUN - Norman, OK")
+
     def test_afd_notes_are_trimmed_to_key_bullets(self):
         section = "- Severe storms possible tonight. - Hot again Tuesday. - Rain chances continue. - Extra detail."
 
@@ -642,7 +656,7 @@ class SpcParsingTests(unittest.TestCase):
             "day1": {"day": "Day 1", "risk": "Slight", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
             "day2": {"day": "Day 2", "risk": "Marginal", "probabilities": {}, "intensity": {}, "url": "https://example.test", "summary": "", "risk_lines": [], "source": "SPC GIS"},
             "forecasts": ["OKC: forecast"],
-            "forecaster_notes": [{"office": "OUN", "text": "Severe storms possible.", "url": ""}],
+            "forecaster_notes": [{"office": "OUN", "location": "Norman, OK", "text": "Severe storms possible.", "url": ""}],
             "now": "Monday, June 1 at 9:00 PM",
         }
 
@@ -650,6 +664,8 @@ class SpcParsingTests(unittest.TestCase):
 
         self.assertTrue(any(embed["title"] == "📝 Forecaster Notes" for embed in embeds))
         self.assertTrue(any("image" in embed for embed in embeds if "SPC" in embed["title"]))
+        notes_embed = next(embed for embed in embeds if embed["title"].endswith("Forecaster Notes"))
+        self.assertEqual(notes_embed["fields"][0]["name"], "NWS OUN - Norman, OK")
         city_embed = next(embed for embed in embeds if embed["title"].endswith("City snapshots"))
         self.assertEqual(city_embed["fields"][0]["name"], "OKC")
         self.assertEqual(city_embed["fields"][0]["value"], "forecast")

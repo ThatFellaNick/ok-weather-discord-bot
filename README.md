@@ -85,7 +85,7 @@ docker compose up -d --build
 To pin a specific published version later, set `BOT_IMAGE` in `.env`, for example:
 
 ```env
-BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.6
+BOT_IMAGE=thatfellanick/ok-weather-discord-bot:v2.5.7
 ```
 
 ## Build Locally From Git
@@ -202,7 +202,7 @@ Tags:
 
 - `latest` on pushes to `main`
 - `main` on pushes to `main`
-- version tags such as `v2.5.6` when you push a matching git tag
+- version tags such as `v2.5.7` when you push a matching git tag
 - `sha-...` tags for exact commit builds
 
 ## Environment Variables
